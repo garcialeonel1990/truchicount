@@ -2,6 +2,12 @@ const state = {
   currentScreen: "groups",
   currentTab: "expenses",
   currentGroupId: "aug-26",
+  expenseDraft: {
+    categoryEmoji: "🛒",
+    categoryName: "Compras",
+    payer: "Leo",
+    splitWith: ["Aldu", "Leo"],
+  },
   groups: [
     {
       id: "aug-26",
@@ -96,10 +102,38 @@ const tabs = document.querySelectorAll(".tab");
 const panels = document.querySelectorAll(".tab-panel");
 const detailTabs = document.querySelector("#detail-tabs");
 const expenseModal = document.querySelector("#expense-modal");
-const ocrPreview = document.querySelector("#ocr-preview");
+const expenseTitleInput = document.querySelector("#expense-title-input");
+const amountInput = document.querySelector("#amount-input");
+const currencySelect = document.querySelector("#currency-select");
+const dateInput = document.querySelector("#date-input");
+const payerButton = document.querySelector("#payer-button");
+const payerMenu = document.querySelector("#payer-menu");
+const categoryButton = document.querySelector("#category-button");
+const categoryMenu = document.querySelector("#category-menu");
+const splitRows = document.querySelectorAll("[data-split-person]");
+const submitExpenseButton = document.querySelector("#submit-expense-button");
+const splitAmountLeo = document.querySelector("#split-amount-leo");
+const splitAmountAldu = document.querySelector("#split-amount-aldu");
 
 function formatMoney(value) {
   return currency.format(value);
+}
+
+function parseAmount(value) {
+  const normalized = value.replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, "");
+  const amount = Number.parseFloat(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function buildDateLabel(value) {
+  return value.trim() || "28 Ago 2026";
+}
+
+function formatInputAmount(value) {
+  return new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 function getCurrentGroup() {
@@ -257,6 +291,68 @@ function renderDetail() {
   renderPhotos(group);
 }
 
+function updateSplitAmounts() {
+  const amount = parseAmount(amountInput.value);
+  const selected = state.expenseDraft.splitWith;
+  const share = selected.length ? amount / selected.length : 0;
+
+  splitAmountLeo.textContent = selected.includes("Leo") ? formatMoney(share) : formatMoney(0);
+  splitAmountAldu.textContent = selected.includes("Aldu") ? formatMoney(share) : formatMoney(0);
+
+  splitRows.forEach((row) => {
+    row.classList.toggle("is-selected", selected.includes(row.dataset.splitPerson));
+  });
+}
+
+function closeAllMenus() {
+  categoryMenu.hidden = true;
+  payerMenu.hidden = true;
+}
+
+function resetExpenseDraft() {
+  state.expenseDraft = {
+    categoryEmoji: "🛒",
+    categoryName: "Compras",
+    payer: "Leo",
+    splitWith: ["Aldu", "Leo"],
+  };
+
+  expenseTitleInput.value = "";
+  amountInput.value = "0,00";
+  currencySelect.value = "ARS";
+  dateInput.value = "28 Ago 2026";
+  categoryButton.textContent = state.expenseDraft.categoryEmoji;
+  payerButton.textContent = "Leo (Me)";
+  closeAllMenus();
+  updateSplitAmounts();
+}
+
+function addExpense() {
+  const group = getCurrentGroup();
+  const amount = parseAmount(amountInput.value);
+  const title = expenseTitleInput.value.trim() || state.expenseDraft.categoryName;
+  const payer = state.expenseDraft.payer;
+
+  if (!amount || state.expenseDraft.splitWith.length === 0) {
+    return;
+  }
+
+  group.expenses.unshift({
+    id: `exp-${Date.now()}`,
+    dateLabel: buildDateLabel(dateInput.value),
+    name: title,
+    payer,
+    amount,
+    emoji: state.expenseDraft.categoryEmoji,
+  });
+
+  renderGroups();
+  renderDetail();
+  expenseModal.close();
+  resetExpenseDraft();
+  setTab("expenses");
+}
+
 function setScreen(screenName) {
   state.currentScreen = screenName;
   screens.forEach((screen) => {
@@ -296,6 +392,7 @@ function initEvents() {
   });
 
   const openExpenseModal = () => {
+    resetExpenseDraft();
     expenseModal.showModal();
   };
 
@@ -304,26 +401,83 @@ function initEvents() {
   document.querySelector("#scan-ticket-button").addEventListener("click", () => {
     setTab("photos");
     openExpenseModal();
-    ocrPreview.classList.add("visible");
   });
 
-  document.querySelector("#modal-scan-button").addEventListener("click", () => {
-    ocrPreview.classList.add("visible");
+  categoryButton.addEventListener("click", () => {
+    const nextState = !categoryMenu.hidden;
+    closeAllMenus();
+    categoryMenu.hidden = nextState;
   });
 
-  document.querySelector("#manual-entry-button").addEventListener("click", () => {
-    ocrPreview.classList.remove("visible");
+  payerButton.addEventListener("click", () => {
+    const nextState = !payerMenu.hidden;
+    closeAllMenus();
+    payerMenu.hidden = nextState;
   });
 
-  document.querySelector("#close-modal-button").addEventListener("click", () => {
-    ocrPreview.classList.remove("visible");
+  categoryMenu.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-category]");
+    if (!option) return;
+
+    state.expenseDraft.categoryEmoji = option.dataset.category;
+    state.expenseDraft.categoryName = option.dataset.categoryName;
+    categoryButton.textContent = option.dataset.category;
+    if (!expenseTitleInput.value.trim()) {
+      expenseTitleInput.placeholder = option.dataset.categoryName;
+    }
+    categoryMenu.hidden = true;
   });
 
-  expenseModal.addEventListener("close", () => {
-    ocrPreview.classList.remove("visible");
+  payerMenu.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-payer]");
+    if (!option) return;
+
+    state.expenseDraft.payer = option.dataset.payer;
+    payerButton.textContent = option.dataset.payer === "Leo" ? "Leo (Me)" : "Aldu";
+    payerMenu.hidden = true;
+  });
+
+  splitRows.forEach((row) => {
+    const togglePerson = () => {
+      const { splitPerson } = row.dataset;
+      const selected = state.expenseDraft.splitWith;
+
+      if (selected.includes(splitPerson)) {
+        if (selected.length === 1) return;
+        state.expenseDraft.splitWith = selected.filter((person) => person !== splitPerson);
+      } else {
+        state.expenseDraft.splitWith = [...selected, splitPerson];
+      }
+
+      updateSplitAmounts();
+    };
+
+    row.addEventListener("click", togglePerson);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        togglePerson();
+      }
+    });
+  });
+
+  amountInput.addEventListener("input", updateSplitAmounts);
+  submitExpenseButton.addEventListener("click", addExpense);
+
+  expenseModal.addEventListener("click", (event) => {
+    if (event.target === expenseModal) {
+      closeAllMenus();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!expenseModal.open) return;
+    if (event.target.closest(".entry-field-with-menu")) return;
+    closeAllMenus();
   });
 }
 
 renderGroups();
 renderDetail();
+resetExpenseDraft();
 initEvents();

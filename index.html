@@ -13,40 +13,23 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div>
-          <p class="eyebrow">TruchiCount</p>
-          <h1>Gastos del dpto, sin peleas y con ticket escaneado.</h1>
-          <p class="sidebar-copy">
-            Prototipo inicial inspirado en Tricount. Incluye grupos mensuales,
-            resumen de balances y una carga de gastos asistida por OCR.
-          </p>
-        </div>
-
-        <div class="sidebar-panel">
-          <p class="panel-label">Lo que trajeron las capturas</p>
-          <ul class="sidebar-list">
-            <li>Estética iPhone dark con cards anchas y bien redondeadas.</li>
-            <li>Vista principal por períodos mensuales del departamento.</li>
-            <li>Detalle con tabs de gastos, balances y fotos.</li>
-            <li>CTA flotante para crear un gasto rápido.</li>
-            <li>Nuevo plus de producto: leer ticket desde una foto.</li>
-          </ul>
-        </div>
-      </aside>
-
-      <main class="phone-frame">
+    <main class="app-shell">
+      <div class="phone-frame">
         <section class="screen active" data-screen="groups">
-          <header class="statusbar">
-            <span>14:00</span>
-            <span>◔◔◔ 79</span>
-          </header>
-
           <div class="brand-lockup">
             <p class="brand-mark">truchicount</p>
             <p class="brand-subtitle">by leo & aldu</p>
           </div>
+
+          <section class="overview-card">
+            <div>
+              <p class="overview-label">Una sola app, dos formatos</p>
+              <h1 class="overview-title">Gastos del dpto, claros en web y con onda en mobile.</h1>
+            </div>
+            <p class="overview-copy">
+              Meses compartidos, balances rápidos y tickets escaneados desde una sola interfaz responsive.
+            </p>
+          </section>
 
           <div class="group-list" id="group-list"></div>
 
@@ -132,61 +115,136 @@
             <span class="fab-label">Cargar gasto</span>
           </button>
         </section>
-      </main>
-    </div>
+      </div>
+    </main>
 
     <dialog class="modal" id="expense-modal">
-      <form class="modal-card" method="dialog">
-        <div class="modal-header">
-          <div>
-            <p class="eyebrow">Nuevo gasto</p>
-            <h3>Cargar desde ticket o manual</h3>
-          </div>
-          <button class="icon-button small" id="close-modal-button" type="submit">×</button>
+      <form class="modal-card expense-entry-modal" id="expense-entry-modal" method="dialog">
+        <header class="expense-entry-header">
+          <button class="icon-button expense-close-button" id="close-modal-button" type="submit">
+            ×
+          </button>
+          <h3>Add Expense</h3>
+          <div class="expense-header-spacer" aria-hidden="true"></div>
+        </header>
+
+        <div class="entry-type-switch" role="tablist" aria-label="Tipo de movimiento">
+          <button class="entry-type-pill active" type="button">Expense</button>
+          <button class="entry-type-pill" type="button">Income</button>
+          <button class="entry-type-pill" type="button">Transfer</button>
         </div>
 
-        <div class="option-grid">
-          <button class="option-card scan" id="modal-scan-button" type="button">
-            <span class="option-icon">📸</span>
-            <span class="option-title">Escanear ticket</span>
-            <span class="option-copy">Ideal para súper, farmacia o compras del dpto.</span>
-          </button>
-
-          <button class="option-card" id="manual-entry-button" type="button">
-            <span class="option-icon">✍️</span>
-            <span class="option-title">Carga manual</span>
-            <span class="option-copy">Para gastos rápidos, propinas o montos sueltos.</span>
-          </button>
-        </div>
-
-        <div class="ocr-preview" id="ocr-preview">
-          <div class="ticket-paper">
-            <p class="ticket-store">Jumbo Palermo</p>
-            <p class="ticket-line">30/08/2026 - 18:42</p>
-            <p class="ticket-line">3 artículos detectados</p>
-            <hr />
-            <p class="ticket-line">Leche x2</p>
-            <p class="ticket-line">Detergente</p>
-            <p class="ticket-line total">Total: $ 21.920,40</p>
+        <div class="entry-form-layout">
+          <div class="entry-field entry-field-with-menu">
+            <span class="entry-label">Title</span>
+            <div class="entry-title-row">
+              <input
+                class="entry-input title-input"
+                id="expense-title-input"
+                type="text"
+                placeholder="E.g. Drinks"
+              />
+              <button
+                class="entry-icon-button"
+                id="category-button"
+                type="button"
+                aria-label="Elegir categoría"
+              >
+                🛒
+              </button>
+              <button
+                class="entry-icon-button mobile-ticket-trigger"
+                id="mobile-ticket-button"
+                type="button"
+                aria-label="Escanear ticket"
+              >
+                ⌁
+              </button>
+            </div>
+            <div class="floating-menu floating-menu-category" id="category-menu" hidden>
+              <button class="floating-option" data-category="🛒" data-category-name="Compras" type="button">
+                <span>🛒</span>
+                <span>Compras</span>
+              </button>
+              <button class="floating-option" data-category="🍔" data-category-name="Comida" type="button">
+                <span>🍔</span>
+                <span>Comida</span>
+              </button>
+              <button class="floating-option" data-category="🧴" data-category-name="Farmacia" type="button">
+                <span>🧴</span>
+                <span>Farmacia</span>
+              </button>
+              <button class="floating-option" data-category="🧰" data-category-name="Hogar" type="button">
+                <span>🧰</span>
+                <span>Hogar</span>
+              </button>
+              <button class="floating-option" data-category="🚕" data-category-name="Transporte" type="button">
+                <span>🚕</span>
+                <span>Transporte</span>
+              </button>
+            </div>
           </div>
 
-          <div class="ocr-fields">
-            <label>
-              Comercio
-              <input type="text" value="Jumbo" />
-            </label>
-            <label>
-              Pagó
-              <select>
-                <option>Leo</option>
-                <option>Aldu</option>
+          <label class="entry-field">
+            <span class="entry-label">Amount</span>
+            <div class="entry-amount-row">
+              <select class="entry-select entry-currency-select" id="currency-select" aria-label="Moneda">
+                <option>ARS</option>
+                <option>USD</option>
+                <option>BRL</option>
+                <option>BOB</option>
               </select>
-            </label>
-            <label>
-              Total
-              <input type="text" value="$ 21.920,40" />
+              <input class="entry-input amount-input" id="amount-input" type="text" value="0,00" />
+            </div>
+          </label>
+
+          <div class="entry-two-columns">
+            <div class="entry-field entry-field-with-menu">
+              <span class="entry-label">Paid By</span>
+              <button class="entry-select entry-select-button" id="payer-button" type="button">
+                Leo (Me)
+              </button>
+              <div class="floating-menu floating-menu-payer" id="payer-menu" hidden>
+                <button class="floating-option" data-payer="Leo" type="button">
+                  <span>✓</span>
+                  <span>Leo (Me)</span>
+                </button>
+                <button class="floating-option" data-payer="Aldu" type="button">
+                  <span></span>
+                  <span>Aldu</span>
+                </button>
+              </div>
+            </div>
+
+            <label class="entry-field">
+              <span class="entry-label">When</span>
+              <input class="entry-input" id="date-input" type="text" value="28 Ago 2026" />
             </label>
           </div>
+
+          <div class="entry-split-head">
+            <span class="entry-label">Split</span>
+            <button class="split-mode-button" type="button">Equally</button>
+          </div>
+
+          <section class="split-card">
+            <article class="split-row is-selected" data-split-person="Aldu" tabindex="0">
+              <div class="split-person">
+                <span class="split-check">✓</span>
+                <span>Aldu</span>
+              </div>
+              <strong id="split-amount-aldu">$ 0,00</strong>
+            </article>
+            <article class="split-row is-selected" data-split-person="Leo" tabindex="0">
+              <div class="split-person">
+                <span class="split-check">✓</span>
+                <span>Leo (Me)</span>
+              </div>
+              <strong id="split-amount-leo">$ 0,00</strong>
+            </article>
+          </section>
+
+          <button class="entry-submit-button" id="submit-expense-button" type="button">Add</button>
         </div>
       </form>
     </dialog>
