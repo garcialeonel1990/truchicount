@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Truchicount</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell" aria-live="polite">
+      <section class="screen screen-home is-active" id="homeScreen">
+        <header class="home-header">
+          <div>
+            <p class="eyebrow">by buna</p>
+            <h1><span>truchi</span>count</h1>
+          </div>
+          <button class="icon-button" id="seedButton" type="button" title="Cargar ejemplo">↻</button>
+        </header>
+
+        <section class="project-list" id="projectList"></section>
+
+        <button class="fab" id="newProjectButton" type="button" aria-label="Nuevo truchicount">
+          <span>+</span>
+          <small>New truchicount</small>
+        </button>
+
+        <nav class="bottom-nav" aria-label="Navegacion principal">
+          <button class="nav-item is-selected" type="button">
+            <strong>tt</strong>
+            <span>truchicounts</span>
+          </button>
+          <button class="nav-item" type="button">
+            <strong>$</strong>
+            <span>Requests</span>
+          </button>
+          <button class="nav-item" type="button">
+            <strong>▭</strong>
+            <span>Free Card</span>
+          </button>
+          <button class="nav-item" type="button">
+            <strong>◕</strong>
+            <span>Profile</span>
+          </button>
+        </nav>
+      </section>
+
+      <section class="screen screen-detail" id="detailScreen" hidden>
+        <header class="detail-header">
+          <div class="toolbar">
+            <button class="round-button" id="backButton" type="button" aria-label="Volver">‹</button>
+            <button class="round-button" id="menuButton" type="button" aria-label="Menu">···</button>
+          </div>
+          <div class="project-title">
+            <span id="detailEmoji">🏡</span>
+            <h2 id="detailTitle">Depto - Mayo '26</h2>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Vistas del proyecto">
+            <button class="tab is-selected" data-tab="expenses" type="button">Expenses</button>
+            <button class="tab" data-tab="balances" type="button">Balances</button>
+            <button class="tab" data-tab="photos" type="button">Photos</button>
+          </div>
+        </header>
+
+        <section class="tab-panel is-active" id="expensesPanel">
+          <div class="totals-row">
+            <div>
+              <span>My Expenses</span>
+              <strong id="myExpenses">$ 0,00</strong>
+            </div>
+            <div>
+              <span>Total Expenses</span>
+              <strong id="totalExpenses">$ 0,00</strong>
+            </div>
+          </div>
+          <div class="expense-list" id="expenseList"></div>
+        </section>
+
+        <section class="tab-panel" id="balancesPanel">
+          <article class="settlement-card" id="settlementCard"></article>
+          <div class="section-heading">
+            <h3>Balances</h3>
+            <button class="sort-button" id="sortBalances" type="button" aria-label="Ordenar balances">↕</button>
+          </div>
+          <div class="balance-list" id="balanceList"></div>
+        </section>
+
+        <section class="tab-panel" id="photosPanel">
+          <div class="empty-state">
+            <strong>Sin fotos todavia</strong>
+            <span>Las fotos de tickets van a vivir aca cuando conectemos storage.</span>
+          </div>
+        </section>
+
+        <button class="fab detail-fab" id="addExpenseButton" type="button" aria-label="Agregar gasto">
+          <span>+</span>
+          <small>Add Expense</small>
+        </button>
+      </section>
+    </main>
+
+    <dialog class="modal" id="projectModal">
+      <form method="dialog" class="modal-card" id="projectForm">
+        <button class="close-button" value="cancel" type="button" data-close-project>×</button>
+        <h2>Nuevo truchicount</h2>
+        <label>
+          Nombre
+          <input name="name" placeholder="Vacaciones Bariloche" required />
+        </label>
+        <label>
+          Emoji
+          <input name="emoji" placeholder="🏔️" maxlength="4" />
+        </label>
+        <label>
+          Personas
+          <input name="members" placeholder="Leo, Aldu, Juli" required />
+        </label>
+        <button class="primary-button" type="submit">Crear</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="expenseModal">
+      <form method="dialog" class="modal-card expense-form" id="expenseForm">
+        <button class="close-button" value="cancel" type="button" data-close-expense>×</button>
+        <h2>Add Expense</h2>
+
+        <div class="segmented" role="group" aria-label="Tipo de movimiento">
+          <button class="is-selected" type="button">Expense</button>
+          <button type="button">Income</button>
+          <button type="button">Transfer</button>
+        </div>
+
+        <label>
+          Title
+          <input name="title" placeholder="E.g. Drinks" required />
+        </label>
+
+        <div class="amount-grid">
+          <label>
+            Moneda
+            <select name="currency">
+              <option value="ARS">ARS $</option>
+              <option value="USD">USD $</option>
+              <option value="BRL">BRL R$</option>
+            </select>
+          </label>
+          <label>
+            Amount
+            <input name="amount" inputmode="decimal" placeholder="0,00" required />
+          </label>
+        </div>
+
+        <div class="two-columns">
+          <label>
+            Paid By
+            <select name="paidBy" id="paidBySelect"></select>
+          </label>
+          <label>
+            When
+            <input name="date" type="date" required />
+          </label>
+        </div>
+
+        <label>
+          Categoria
+          <select name="category">
+            <option value="Groceries">🛒 Groceries</option>
+            <option value="Restaurants & Bars">🍔 Restaurants & Bars</option>
+            <option value="Rent & Charges">🏠 Rent & Charges</option>
+            <option value="Pet">🐾 Pet</option>
+            <option value="Transport">🚕 Transport</option>
+            <option value="Other">✋ Other</option>
+          </select>
+        </label>
+
+        <div class="split-header">
+          <strong>Split</strong>
+          <select name="splitMode">
+            <option value="equal">Equally</option>
+            <option value="manual">Manual</option>
+          </select>
+        </div>
+        <div class="split-box" id="splitMembers"></div>
+
+        <button class="primary-button" type="submit">Add</button>
+      </form>
+    </dialog>
+
+    <template id="projectTemplate">
+      <button class="project-card" type="button">
+        <span class="project-emoji"></span>
+        <span class="project-copy">
+          <strong></strong>
+          <small></small>
+        </span>
+        <span class="chevron">›</span>
+      </button>
+    </template>
+
+    <template id="expenseTemplate">
+      <article class="expense-card">
+        <span class="expense-icon"></span>
+        <span class="expense-copy">
+          <strong></strong>
+          <small></small>
+        </span>
+        <span class="expense-amount"></span>
+      </article>
+    </template>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
