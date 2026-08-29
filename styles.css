@@ -971,6 +971,66 @@ input::placeholder {
   font-weight: 700;
 }
 
+.approval-section {
+  gap: 10px;
+}
+
+.compact-heading {
+  margin-bottom: 0;
+}
+
+.compact-heading h3 {
+  font-size: 18px;
+}
+
+.request-list {
+  display: grid;
+  gap: 10px;
+}
+
+.request-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(6, 17, 31, 0.58);
+}
+
+.request-row span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.request-row strong,
+.request-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-row small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.request-actions {
+  display: flex !important;
+  gap: 8px;
+}
+
+.empty-row {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(6, 17, 31, 0.58);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 @media (min-width: 900px) {
   body {
     padding: 28px;

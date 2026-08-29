@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260829-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260829-4" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -184,6 +184,13 @@
         <p class="form-error" id="projectSettingsError" hidden></p>
         <button class="secondary-button" id="copyInviteButton" type="button">Copiar link de invitación</button>
         <p class="form-note" id="inviteLinkStatus" hidden></p>
+        <section class="form-section approval-section" id="approvalSection" hidden>
+          <div class="section-heading compact-heading">
+            <h3>Solicitudes pendientes</h3>
+          </div>
+          <div class="request-list" id="approvalRequestList"></div>
+          <p class="form-note" id="approvalStatus" hidden></p>
+        </section>
         <button class="secondary-button" id="archiveProjectButton" type="button">Archivar truchicount</button>
         <button class="primary-button" type="submit">Guardar</button>
       </form>
@@ -214,6 +221,16 @@
         </div>
         <div class="choice-list" id="inviteMemberOptions"></div>
         <p class="form-error" id="inviteError" hidden></p>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="pendingAccessModal">
+      <form method="dialog" class="modal-card">
+        <div class="modal-heading">
+          <h2>Solicitud enviada</h2>
+          <p id="pendingAccessText">El admin tiene que aprobar tu ingreso.</p>
+        </div>
+        <button class="secondary-button" id="pendingSignOutButton" type="button">Cerrar sesión</button>
       </form>
     </dialog>
 
@@ -295,6 +312,6 @@
       </article>
     </template>
 
-    <script src="./app.js?v=20260829-3" type="module"></script>
+    <script src="./app.js?v=20260829-4" type="module"></script>
   </body>
 </html>

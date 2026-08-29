@@ -9,6 +9,15 @@ import {
   signOut,
   updateProfile,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
+import {
+  collection,
+  doc,
+  getFirestore,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDErUOtXuvBuGGhsfPjxPPuC-RYQsbBCO0",
@@ -21,6 +30,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
 googleProvider.setCustomParameters({
@@ -53,4 +63,35 @@ export function signOutUser() {
 
 export function updateUserProfile(displayName) {
   return updateProfile(auth.currentUser, { displayName });
+}
+
+export function requestProjectAccess(projectId, request) {
+  return setDoc(
+    doc(db, "projects", projectId, "joinRequests", request.uid),
+    {
+      ...request,
+      status: "pending",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+export function watchProjectJoinRequests(projectId, onChange) {
+  return onSnapshot(
+    collection(db, "projects", projectId, "joinRequests"),
+    (snapshot) => {
+      onChange(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+    },
+    (error) => onChange([], error)
+  );
+}
+
+export function reviewProjectAccess(projectId, uid, status) {
+  return updateDoc(doc(db, "projects", projectId, "joinRequests", uid), {
+    status,
+    reviewedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 }
