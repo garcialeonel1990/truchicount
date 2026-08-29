@@ -7,6 +7,7 @@ import {
   signInWithPopup,
   signInWithRedirect,
   signOut,
+  updateProfile,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 
 const firebaseConfig = {
@@ -48,4 +49,8 @@ export async function signInWithGoogle() {
 
 export function signOutUser() {
   return signOut(auth);
+}
+
+export function updateUserProfile(displayName) {
+  return updateProfile(auth.currentUser, { displayName });
 }

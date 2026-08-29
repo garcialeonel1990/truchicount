@@ -856,6 +856,14 @@ input::placeholder {
   font-weight: 700;
 }
 
+.form-note {
+  margin: -6px 4px 0;
+  color: var(--green);
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .participant-row input {
   min-height: 58px;
   padding: 0;
@@ -931,6 +939,36 @@ input::placeholder {
 .archived-card:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 3px;
+}
+
+.choice-list {
+  display: grid;
+  gap: 10px;
+}
+
+.choice-button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--surface);
+  text-align: left;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.choice-button:hover {
+  background: var(--surface-soft);
+}
+
+.choice-button strong {
+  font-size: 18px;
+}
+
+.choice-button span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 @media (min-width: 900px) {

@@ -1,4 +1,4 @@
-import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase-auth.js";
+import { completeRedirectSignIn, signInWithGoogle, signOutUser, updateUserProfile, watchAuth } from "./firebase-auth.js";
 
 const storageKey = "truchicount:v1";
 
@@ -94,6 +94,7 @@ let state = loadState();
 let activeTab = "expenses";
 let detailReturnView = "home";
 let authUser = null;
+let pendingInvite = readInviteFromUrl();
 
 const loginScreen = document.querySelector("#loginScreen");
 const googleLoginButton = document.querySelector("#googleLoginButton");
@@ -115,6 +116,15 @@ const projectSettingsModal = document.querySelector("#projectSettingsModal");
 const expenseModal = document.querySelector("#expenseModal");
 const projectForm = document.querySelector("#projectForm");
 const projectSettingsForm = document.querySelector("#projectSettingsForm");
+const accountModal = document.querySelector("#accountModal");
+const accountForm = document.querySelector("#accountForm");
+const accountName = document.querySelector("#accountName");
+const accountEmail = document.querySelector("#accountEmail");
+const accountError = document.querySelector("#accountError");
+const inviteModal = document.querySelector("#inviteModal");
+const inviteProjectTitle = document.querySelector("#inviteProjectTitle");
+const inviteMemberOptions = document.querySelector("#inviteMemberOptions");
+const inviteError = document.querySelector("#inviteError");
 const expenseForm = document.querySelector("#expenseForm");
 const categoryForm = document.querySelector("#categoryForm");
 const currencyForm = document.querySelector("#currencyForm");
@@ -132,12 +142,18 @@ const categorySelect = document.querySelector("#categorySelect");
 const addExpenseButton = document.querySelector("#addExpenseButton");
 const detailStatus = document.querySelector("#detailStatus");
 const userButton = document.querySelector("#userButton");
+const signOutButton = document.querySelector("#signOutButton");
+const copyInviteButton = document.querySelector("#copyInviteButton");
+const inviteLinkStatus = document.querySelector("#inviteLinkStatus");
 
 googleLoginButton.addEventListener("click", handleGoogleLogin);
-userButton.addEventListener("click", handleSignOut);
+userButton.addEventListener("click", openAccountModal);
+accountForm.addEventListener("submit", handleProfileSave);
+signOutButton.addEventListener("click", handleSignOut);
 document.querySelector("#newProjectButton").addEventListener("click", openProjectModal);
 document.querySelector("[data-close-project]").addEventListener("click", () => projectModal.close());
 document.querySelector("[data-close-project-settings]").addEventListener("click", () => projectSettingsModal.close());
+document.querySelector("[data-close-account]").addEventListener("click", () => accountModal.close());
 document.querySelector("[data-close-expense]").addEventListener("click", () => expenseModal.close());
 document.querySelector("#backButton").addEventListener("click", returnFromDetail);
 document.querySelector("#settingsBackButton").addEventListener("click", showHome);
@@ -145,6 +161,7 @@ document.querySelector("#archivedBackButton").addEventListener("click", showHome
 addExpenseButton.addEventListener("click", openExpenseModal);
 document.querySelector("#menuButton").addEventListener("click", openProjectSettingsModal);
 document.querySelector("#archiveProjectButton").addEventListener("click", toggleActiveProjectArchive);
+copyInviteButton.addEventListener("click", copyInviteLink);
 document.querySelector("#addProjectParticipant").addEventListener("click", () => addParticipantRow());
 document.querySelector("#addEditProjectParticipant").addEventListener("click", () => addEditParticipantRow());
 
@@ -189,6 +206,7 @@ projectForm.addEventListener("submit", (event) => {
     name: data.get("name").trim(),
     defaultCurrency: data.get("currency"),
     archived: false,
+    memberLinks: {},
     members,
     expenses: [],
   };
@@ -201,6 +219,7 @@ projectForm.addEventListener("submit", (event) => {
 
   state.projects.unshift(project);
   state.currentUserId = members[0].id;
+  linkCurrentUserToMember(project, members[0].id);
   state.activeProjectId = project.id;
   saveState();
   projectForm.reset();
@@ -319,9 +338,31 @@ async function handleGoogleLogin() {
 
 async function handleSignOut() {
   try {
+    accountModal.close();
     await signOutUser();
   } catch (error) {
     showAuthError(error);
+  }
+}
+
+async function handleProfileSave(event) {
+  event.preventDefault();
+  const displayName = accountName.value.trim();
+
+  if (!displayName) {
+    accountError.textContent = "Escribí un nombre.";
+    accountError.hidden = false;
+    return;
+  }
+
+  try {
+    await updateUserProfile(displayName);
+    authUser = { ...authUser, displayName };
+    accountModal.close();
+    renderAuthState();
+  } catch (error) {
+    accountError.textContent = error.message || "No se pudo guardar el nombre.";
+    accountError.hidden = false;
   }
 }
 
@@ -334,8 +375,24 @@ function renderAuthState() {
 
   const name = authUser.displayName || authUser.email || "Usuario";
   userButton.textContent = initialsFromName(name);
-  userButton.title = `Cerrar sesión de ${name}`;
+  userButton.title = `Abrir cuenta de ${name}`;
+
+  if (pendingInvite) {
+    openInviteModal(pendingInvite);
+    return;
+  }
+
   showHome();
+}
+
+function openAccountModal() {
+  const name = authUser?.displayName || "";
+  accountName.value = name;
+  accountEmail.textContent = authUser?.email || "";
+  accountError.hidden = true;
+  accountError.textContent = "";
+  accountModal.showModal();
+  accountName.focus();
 }
 
 function showAuthError(error) {
@@ -348,6 +405,53 @@ function readableAuthError(error) {
   if (error.code === "auth/popup-closed-by-user") return "Se cerró la ventana de Google antes de terminar.";
   if (error.code === "auth/unauthorized-domain") return "Este dominio no está autorizado en Firebase Authentication.";
   return error.message || "No se pudo iniciar sesión.";
+}
+
+async function copyInviteLink() {
+  const project = getActiveProject();
+  const link = createInviteLink(project);
+
+  inviteLinkStatus.hidden = false;
+
+  try {
+    await navigator.clipboard.writeText(link);
+    inviteLinkStatus.textContent = "Link copiado. Mandáselo a la otra persona para que entre con Google.";
+  } catch {
+    inviteLinkStatus.textContent = link;
+  }
+}
+
+function openInviteModal(invite) {
+  inviteProjectTitle.textContent = `${invite.name} · elegí qué integrante sos`;
+  inviteMemberOptions.replaceChildren();
+  inviteError.hidden = true;
+  inviteError.textContent = "";
+
+  invite.members.forEach((member) => {
+    const button = document.createElement("button");
+    button.className = "choice-button";
+    button.type = "button";
+    button.innerHTML = `
+      <strong>${escapeHtml(member.name)}</strong>
+      <span>${member.isMe ? "Creador del truchicount" : "Participante"}</span>
+    `;
+    button.addEventListener("click", () => acceptInvite(invite, member.id));
+    inviteMemberOptions.append(button);
+  });
+
+  inviteModal.showModal();
+}
+
+function acceptInvite(invite, memberId) {
+  const project = importInvitedProject(invite);
+  linkCurrentUserToMember(project, memberId);
+  state.currentUserId = memberId;
+  state.activeProjectId = project.id;
+  saveState();
+  clearInviteFromUrl();
+  pendingInvite = null;
+  inviteModal.close();
+  showDetail(project.id, "home");
 }
 
 function resetExampleData() {
@@ -463,6 +567,7 @@ function returnFromDetail() {
 
 function renderDetail() {
   const project = getActiveProject();
+  state.currentUserId = currentUserMemberId(project);
   document.querySelector("#detailTitle").textContent = project.name;
   addExpenseButton.hidden = project.archived;
   detailStatus.hidden = !project.archived;
@@ -514,12 +619,13 @@ function renderExpenses(project) {
 
 function renderBalances(project) {
   const { balances, settlements } = calculateBalances(project);
+  const currentMemberId = currentUserMemberId(project);
   balanceList.replaceChildren();
 
-  const currentSettlement = settlements.find((item) => item.from === state.currentUserId || item.to === state.currentUserId);
+  const currentSettlement = settlements.find((item) => item.from === currentMemberId || item.to === currentMemberId);
   if (currentSettlement) {
-    const direction = currentSettlement.from === state.currentUserId ? "owe" : "are owed";
-    const otherId = currentSettlement.from === state.currentUserId ? currentSettlement.to : currentSettlement.from;
+    const direction = currentSettlement.from === currentMemberId ? "owe" : "are owed";
+    const otherId = currentSettlement.from === currentMemberId ? currentSettlement.to : currentSettlement.from;
     settlementCard.innerHTML = `
       <span class="settlement-icon">💸</span>
       <span>
@@ -541,13 +647,14 @@ function renderBalances(project) {
 
   project.members.forEach((member) => {
     const amount = balances[member.id] ?? 0;
+    const isCurrentMember = member.id === currentMemberId;
     const card = document.createElement("article");
     card.className = "balance-card";
     card.innerHTML = `
-      <span class="balance-avatar">${member.isMe ? "◕" : member.name.slice(0, 1).toUpperCase()}</span>
+      <span class="balance-avatar">${isCurrentMember ? "◕" : member.name.slice(0, 1).toUpperCase()}</span>
       <span>
         <strong>${member.name}</strong>
-        <small>${member.isMe ? "Me" : "Participant"}</small>
+        <small>${isCurrentMember ? "Me" : "Participant"}</small>
       </span>
       <span class="balance-amount ${amount >= 0 ? "positive" : "negative"}">${amount >= 0 ? "+" : "-"}${formatMoney(Math.abs(amount))}</span>
     `;
@@ -569,6 +676,7 @@ function openExpenseModal() {
     const option = document.createElement("option");
     option.value = member.id;
     option.textContent = memberLabel(project, member.id);
+    option.selected = member.id === currentUserMemberId(project);
     paidBySelect.append(option);
 
     const row = document.createElement("label");
@@ -612,6 +720,8 @@ function openProjectSettingsModal() {
   editProjectParticipants.replaceChildren();
   projectSettingsError.hidden = true;
   projectSettingsError.textContent = "";
+  inviteLinkStatus.hidden = true;
+  inviteLinkStatus.textContent = "";
   fillCurrencySelect(editProjectCurrencySelect, project.defaultCurrency ?? "ARS");
   document.querySelector("#archiveProjectButton").textContent = project.archived ? "Restaurar truchicount" : "Archivar truchicount";
 
@@ -878,7 +988,7 @@ function totalExpense(project) {
 function memberLabel(project, memberId) {
   const member = project.members.find((item) => item.id === memberId);
   if (!member) return "Unknown";
-  return member.isMe ? `${member.name} (me)` : member.name;
+  return member.id === currentUserMemberId(project) ? `${member.name} (me)` : member.name;
 }
 
 function categoryEmoji(categoryId) {
@@ -963,6 +1073,8 @@ function normalizeState(rawState) {
   normalized.projects = normalized.projects.map((project) => ({
     ...project,
     defaultCurrency: project.defaultCurrency ?? "ARS",
+    memberLinks: project.memberLinks ?? {},
+    expenses: project.expenses ?? [],
   }));
 
   normalized.projects.forEach((project) => {
@@ -973,6 +1085,88 @@ function normalizeState(rawState) {
   });
 
   return normalized;
+}
+
+function linkCurrentUserToMember(project, memberId) {
+  if (!authUser?.uid) return;
+  project.memberLinks ??= {};
+  project.memberLinks[authUser.uid] = memberId;
+}
+
+function currentUserMemberId(project) {
+  if (!authUser?.uid) return state.currentUserId;
+  return project.memberLinks?.[authUser.uid] ?? state.currentUserId;
+}
+
+function createInviteLink(project) {
+  const payload = {
+    id: project.id,
+    name: project.name,
+    defaultCurrency: project.defaultCurrency ?? "ARS",
+    members: project.members,
+    expenses: project.expenses,
+    settings: state.settings,
+  };
+  const encoded = encodeInvitePayload(payload);
+  const url = new URL(window.location.href);
+  url.searchParams.set("invite", encoded);
+  url.hash = "";
+  return url.toString();
+}
+
+function readInviteFromUrl() {
+  const inviteParam = new URLSearchParams(window.location.search).get("invite");
+  if (!inviteParam) return null;
+
+  try {
+    return decodeInvitePayload(inviteParam);
+  } catch {
+    return null;
+  }
+}
+
+function clearInviteFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("invite");
+  window.history.replaceState({}, "", url);
+}
+
+function importInvitedProject(invite) {
+  let project = state.projects.find((item) => item.id === invite.id);
+
+  if (!project) {
+    project = {
+      id: invite.id,
+      name: invite.name,
+      defaultCurrency: invite.defaultCurrency ?? "ARS",
+      archived: false,
+      memberLinks: {},
+      members: invite.members,
+      expenses: invite.expenses ?? [],
+    };
+    state.projects.unshift(project);
+  }
+
+  state.settings = invite.settings ?? state.settings;
+  return project;
+}
+
+function encodeInvitePayload(payload) {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function decodeInvitePayload(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 function setSelectedNav(viewName) {

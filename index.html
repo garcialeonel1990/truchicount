@@ -182,8 +182,38 @@
           <button class="text-button" id="addEditProjectParticipant" type="button">Add Another Participant</button>
         </div>
         <p class="form-error" id="projectSettingsError" hidden></p>
+        <button class="secondary-button" id="copyInviteButton" type="button">Copiar link de invitación</button>
+        <p class="form-note" id="inviteLinkStatus" hidden></p>
         <button class="secondary-button" id="archiveProjectButton" type="button">Archivar truchicount</button>
         <button class="primary-button" type="submit">Guardar</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="accountModal">
+      <form method="dialog" class="modal-card" id="accountForm">
+        <button class="close-button" value="cancel" type="button" data-close-account>×</button>
+        <div class="modal-heading">
+          <h2>Mi cuenta</h2>
+          <p id="accountEmail"></p>
+        </div>
+        <label>
+          Nombre visible
+          <input name="displayName" id="accountName" placeholder="Tu nombre" required />
+        </label>
+        <p class="form-error" id="accountError" hidden></p>
+        <button class="secondary-button" id="signOutButton" type="button">Cerrar sesión</button>
+        <button class="primary-button" type="submit">Guardar nombre</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="inviteModal">
+      <form method="dialog" class="modal-card" id="inviteForm">
+        <div class="modal-heading">
+          <h2>Unirte al truchicount</h2>
+          <p id="inviteProjectTitle"></p>
+        </div>
+        <div class="choice-list" id="inviteMemberOptions"></div>
+        <p class="form-error" id="inviteError" hidden></p>
       </form>
     </dialog>
 
