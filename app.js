@@ -1,22 +1,30 @@
 const storageKey = "truchicount:v1";
 
-const categories = {
-  "Groceries": "🛒",
-  "Restaurants & Bars": "🍔",
-  "Rent & Charges": "🏠",
-  Pet: "🐾",
-  Transport: "🚕",
-  Other: "✋",
+const defaultSettings = {
+  categories: [
+    { id: "groceries", name: "Groceries", emoji: "🛒" },
+    { id: "restaurants-bars", name: "Restaurants & Bars", emoji: "🍔" },
+    { id: "rent-charges", name: "Rent & Charges", emoji: "🏠" },
+    { id: "pet", name: "Pet", emoji: "🐾" },
+    { id: "transport", name: "Transport", emoji: "🚕" },
+    { id: "other", name: "Other", emoji: "✋" },
+  ],
+  currencies: [
+    { code: "ARS", name: "Argentine Peso", symbol: "$" },
+    { code: "USD", name: "US Dollar", symbol: "$" },
+    { code: "BRL", name: "Brazilian Real", symbol: "R$" },
+  ],
 };
 
 const exampleState = {
   currentUserId: "leo",
   activeProjectId: "depto-mayo-26",
+  settings: cloneData(defaultSettings),
   projects: [
     {
       id: "depto-julio-26",
       name: "Depto - Julio '26",
-      emoji: "🏡",
+      defaultCurrency: "ARS",
       archived: false,
       members: [
         { id: "leo", name: "Leo", isMe: true },
@@ -27,7 +35,7 @@ const exampleState = {
     {
       id: "depto-junio-26",
       name: "Depto - Junio '26",
-      emoji: "🏡",
+      defaultCurrency: "ARS",
       archived: false,
       members: [
         { id: "leo", name: "Leo", isMe: true },
@@ -38,7 +46,7 @@ const exampleState = {
     {
       id: "depto-mayo-26",
       name: "Dpto - Mayo '26",
-      emoji: "🏡",
+      defaultCurrency: "ARS",
       archived: false,
       members: [
         { id: "leo", name: "Leo", isMe: true },
@@ -82,26 +90,61 @@ const exampleState = {
 
 let state = loadState();
 let activeTab = "expenses";
+let detailReturnView = "home";
 
 const homeScreen = document.querySelector("#homeScreen");
 const detailScreen = document.querySelector("#detailScreen");
+const settingsScreen = document.querySelector("#settingsScreen");
+const archivedScreen = document.querySelector("#archivedScreen");
 const projectList = document.querySelector("#projectList");
+const archivedProjectList = document.querySelector("#archivedProjectList");
 const expenseList = document.querySelector("#expenseList");
 const balanceList = document.querySelector("#balanceList");
 const settlementCard = document.querySelector("#settlementCard");
+const categoryList = document.querySelector("#categoryList");
+const currencyList = document.querySelector("#currencyList");
 const projectModal = document.querySelector("#projectModal");
+const projectSettingsModal = document.querySelector("#projectSettingsModal");
 const expenseModal = document.querySelector("#expenseModal");
 const projectForm = document.querySelector("#projectForm");
+const projectSettingsForm = document.querySelector("#projectSettingsForm");
 const expenseForm = document.querySelector("#expenseForm");
+const categoryForm = document.querySelector("#categoryForm");
+const currencyForm = document.querySelector("#currencyForm");
 const paidBySelect = document.querySelector("#paidBySelect");
 const splitMembers = document.querySelector("#splitMembers");
+const splitError = document.querySelector("#splitError");
+const projectParticipants = document.querySelector("#projectParticipants");
+const projectError = document.querySelector("#projectError");
+const editProjectParticipants = document.querySelector("#editProjectParticipants");
+const projectSettingsError = document.querySelector("#projectSettingsError");
+const projectCurrencySelect = document.querySelector("#projectCurrencySelect");
+const editProjectCurrencySelect = document.querySelector("#editProjectCurrencySelect");
+const expenseCurrencySelect = document.querySelector("#expenseCurrencySelect");
+const categorySelect = document.querySelector("#categorySelect");
+const addExpenseButton = document.querySelector("#addExpenseButton");
+const detailStatus = document.querySelector("#detailStatus");
 
-document.querySelector("#newProjectButton").addEventListener("click", () => projectModal.showModal());
+document.querySelector("#newProjectButton").addEventListener("click", openProjectModal);
 document.querySelector("[data-close-project]").addEventListener("click", () => projectModal.close());
+document.querySelector("[data-close-project-settings]").addEventListener("click", () => projectSettingsModal.close());
 document.querySelector("[data-close-expense]").addEventListener("click", () => expenseModal.close());
-document.querySelector("#backButton").addEventListener("click", showHome);
-document.querySelector("#addExpenseButton").addEventListener("click", openExpenseModal);
-document.querySelector("#seedButton").addEventListener("click", resetExampleData);
+document.querySelector("#backButton").addEventListener("click", returnFromDetail);
+document.querySelector("#settingsBackButton").addEventListener("click", showHome);
+document.querySelector("#archivedBackButton").addEventListener("click", showHome);
+addExpenseButton.addEventListener("click", openExpenseModal);
+document.querySelector("#menuButton").addEventListener("click", openProjectSettingsModal);
+document.querySelector("#archiveProjectButton").addEventListener("click", toggleActiveProjectArchive);
+document.querySelector("#addProjectParticipant").addEventListener("click", () => addParticipantRow());
+document.querySelector("#addEditProjectParticipant").addEventListener("click", () => addEditParticipantRow());
+
+document.querySelectorAll("[data-view]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (button.dataset.view === "settings") showSettings();
+    if (button.dataset.view === "archived") showArchived();
+    if (button.dataset.view === "home") showHome();
+  });
+});
 
 document.querySelectorAll(".tab").forEach((button) => {
   button.addEventListener("click", () => {
@@ -113,25 +156,32 @@ document.querySelectorAll(".tab").forEach((button) => {
 projectForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const data = new FormData(projectForm);
-  const members = data
-    .get("members")
-    .split(",")
-    .map((name) => name.trim())
-    .filter(Boolean)
-    .map((name, index) => ({
-      id: slugify(name) || `member-${index + 1}`,
+  const memberNames = getProjectParticipantNames();
+  const usedMemberIds = [];
+  const members = memberNames.map((name, index) => {
+    const id = uniqueSettingId(slugify(name) || `member-${index + 1}`, usedMemberIds);
+    usedMemberIds.push(id);
+    return {
+      id,
       name,
       isMe: index === 0,
-    }));
+    };
+  });
 
   const project = {
     id: uniqueId(),
     name: data.get("name").trim(),
-    emoji: data.get("emoji").trim() || "🧾",
+    defaultCurrency: data.get("currency"),
     archived: false,
     members,
     expenses: [],
   };
+
+  if (members.length < 2) {
+    projectError.textContent = "Agrega al menos dos participantes.";
+    projectError.hidden = false;
+    return;
+  }
 
   state.projects.unshift(project);
   state.currentUserId = members[0].id;
@@ -142,21 +192,76 @@ projectForm.addEventListener("submit", (event) => {
   showDetail(project.id);
 });
 
+projectSettingsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const project = getActiveProject();
+  const data = new FormData(projectSettingsForm);
+  const members = getEditedMembers(project);
+
+  if (members.length < 2) {
+    projectSettingsError.textContent = "El truchicount necesita al menos dos participantes.";
+    projectSettingsError.hidden = false;
+    return;
+  }
+
+  project.defaultCurrency = data.get("currency");
+  project.members = members;
+  state.currentUserId = members.find((member) => member.isMe)?.id ?? members[0].id;
+
+  saveState();
+  projectSettingsModal.close();
+  renderDetail();
+});
+
+categoryForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = new FormData(categoryForm);
+  const name = data.get("name").trim();
+  const emoji = data.get("emoji").trim() || "🧾";
+  const id = uniqueSettingId(slugify(name), state.settings.categories.map((category) => category.id));
+
+  state.settings.categories.push({ id, name, emoji });
+  saveState();
+  categoryForm.reset();
+  renderSettings();
+});
+
+currencyForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = new FormData(currencyForm);
+  const code = data.get("code").trim().toUpperCase();
+  const name = data.get("name").trim();
+
+  if (!code || state.settings.currencies.some((currency) => currency.code === code)) return;
+
+  state.settings.currencies.push({ code, name, symbol: code });
+  saveState();
+  currencyForm.reset();
+  renderSettings();
+});
+
 expenseForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const project = getActiveProject();
   const data = new FormData(expenseForm);
+  const amount = parseAmount(data.get("amount"));
+  const splitMode = data.get("splitMode");
   const splitWith = [...expenseForm.querySelectorAll("[name='splitWith']:checked")].map((input) => input.value);
+  const shares = buildSplitShares(amount, splitMode, splitWith);
+
+  if (!validateSplit(amount, shares, splitMode)) return;
 
   project.expenses.push({
     id: uniqueId(),
     title: data.get("title").trim(),
     category: data.get("category"),
-    amount: parseAmount(data.get("amount")),
+    amount,
     currency: data.get("currency"),
     paidBy: data.get("paidBy"),
     date: data.get("date"),
-    splitWith: splitWith.length ? splitWith : project.members.map((member) => member.id),
+    splitMode,
+    splitWith: Object.keys(shares),
+    shares,
   });
 
   saveState();
@@ -166,16 +271,16 @@ expenseForm.addEventListener("submit", (event) => {
 });
 
 splitMembers.addEventListener("change", updateSplitPreview);
-expenseForm.amount.addEventListener("input", updateSplitPreview);
+expenseForm.addEventListener("input", updateSplitPreview);
 
 function loadState() {
   const persisted = localStorage.getItem(storageKey);
-  if (!persisted) return cloneData(exampleState);
+  if (!persisted) return normalizeState(cloneData(exampleState));
 
   try {
-    return JSON.parse(persisted);
+    return normalizeState(JSON.parse(persisted));
   } catch {
-    return cloneData(exampleState);
+    return normalizeState(cloneData(exampleState));
   }
 }
 
@@ -184,7 +289,7 @@ function saveState() {
 }
 
 function resetExampleData() {
-  state = cloneData(exampleState);
+  state = normalizeState(cloneData(exampleState));
   saveState();
   showHome();
 }
@@ -196,37 +301,109 @@ function getActiveProject() {
 function renderHome() {
   projectList.replaceChildren();
 
-  state.projects
-    .filter((project) => !project.archived)
-    .forEach((project) => {
-      const template = document.querySelector("#projectTemplate").content.cloneNode(true);
-      const card = template.querySelector(".project-card");
-      card.querySelector(".project-emoji").textContent = project.emoji;
-      card.querySelector("strong").textContent = project.name;
-      card.querySelector("small").textContent = `${project.members.length} personas`;
-      card.addEventListener("click", () => showDetail(project.id));
-      projectList.append(card);
-    });
+  const activeProjects = state.projects.filter((project) => !project.archived);
+  if (!activeProjects.length) {
+    projectList.innerHTML = `<div class="empty-state"><strong>No hay truchicounts activos</strong><span>Creá uno nuevo o revisá Archivados.</span></div>`;
+    return;
+  }
+
+  activeProjects.forEach((project) => {
+    const template = document.querySelector("#projectTemplate").content.cloneNode(true);
+    const card = template.querySelector(".project-card");
+    card.querySelector("strong").textContent = project.name;
+    card.querySelector("small").textContent = `${project.members.length} personas`;
+    card.addEventListener("click", () => showDetail(project.id, "home"));
+    projectList.append(card);
+  });
 }
 
 function showHome() {
+  archivedScreen.hidden = true;
+  settingsScreen.hidden = true;
   detailScreen.hidden = true;
   homeScreen.hidden = false;
+  setSelectedNav("home");
   renderHome();
 }
 
-function showDetail(projectId) {
+function showSettings() {
+  homeScreen.hidden = true;
+  archivedScreen.hidden = true;
+  detailScreen.hidden = true;
+  settingsScreen.hidden = false;
+  setSelectedNav("settings");
+  renderSettings();
+}
+
+function showArchived() {
+  homeScreen.hidden = true;
+  settingsScreen.hidden = true;
+  detailScreen.hidden = true;
+  archivedScreen.hidden = false;
+  setSelectedNav("archived");
+  renderArchived();
+}
+
+function showDetail(projectId, returnView = "home") {
   state.activeProjectId = projectId;
+  detailReturnView = returnView;
   saveState();
+  archivedScreen.hidden = true;
+  settingsScreen.hidden = true;
   homeScreen.hidden = true;
   detailScreen.hidden = false;
+  setSelectedNav(null);
   renderDetail();
+}
+
+function renderArchived() {
+  archivedProjectList.replaceChildren();
+  const archivedProjects = state.projects.filter((project) => project.archived);
+
+  if (!archivedProjects.length) {
+    archivedProjectList.innerHTML = `<div class="empty-state"><strong>No hay archivados</strong><span>Los truchicounts archivados van a aparecer acá.</span></div>`;
+    return;
+  }
+
+  archivedProjects.forEach((project) => {
+    const card = document.createElement("article");
+    card.className = "project-card archived-card";
+    card.tabIndex = 0;
+    card.innerHTML = `
+      <span class="project-copy">
+        <strong>${escapeHtml(project.name)}</strong>
+        <small>${project.members.length} personas · archivado</small>
+      </span>
+      <button class="secondary-button small-action" type="button">Restaurar</button>
+    `;
+    card.addEventListener("click", () => showDetail(project.id, "archived"));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") showDetail(project.id, "archived");
+    });
+    card.querySelector("button").addEventListener("click", (event) => {
+      event.stopPropagation();
+      project.archived = false;
+      saveState();
+      renderArchived();
+    });
+    archivedProjectList.append(card);
+  });
+}
+
+function returnFromDetail() {
+  if (detailReturnView === "archived") {
+    showArchived();
+    return;
+  }
+
+  showHome();
 }
 
 function renderDetail() {
   const project = getActiveProject();
-  document.querySelector("#detailEmoji").textContent = project.emoji;
   document.querySelector("#detailTitle").textContent = project.name;
+  addExpenseButton.hidden = project.archived;
+  detailStatus.hidden = !project.archived;
 
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("is-selected", button.dataset.tab === activeTab);
@@ -248,7 +425,8 @@ function renderExpenses(project) {
 
   const grouped = groupByDate(project.expenses);
   if (!project.expenses.length) {
-    expenseList.innerHTML = `<div class="empty-state"><strong>No hay gastos</strong><span>Agrega el primer gasto compartido.</span></div>`;
+    const helperText = project.archived ? "Este truchicount archivado no tiene gastos cargados." : "Agrega el primer gasto compartido.";
+    expenseList.innerHTML = `<div class="empty-state"><strong>No hay gastos</strong><span>${helperText}</span></div>`;
     return;
   }
 
@@ -259,7 +437,7 @@ function renderExpenses(project) {
 
     expenses.forEach((expense) => {
       const template = document.querySelector("#expenseTemplate").content.cloneNode(true);
-      template.querySelector(".expense-icon").textContent = categories[expense.category] ?? categories.Other;
+      template.querySelector(".expense-icon").textContent = categoryEmoji(expense.category);
       template.querySelector("strong").textContent = expense.title;
       template.querySelector("small").textContent = `Paid by ${memberLabel(project, expense.paidBy)}`;
       template.querySelector(".expense-amount").textContent = formatMoney(expense.amount, expense.currency);
@@ -317,8 +495,13 @@ function renderBalances(project) {
 
 function openExpenseModal() {
   const project = getActiveProject();
+  if (project.archived) return;
   paidBySelect.replaceChildren();
   splitMembers.replaceChildren();
+  fillCurrencySelect(expenseCurrencySelect, project.defaultCurrency ?? "ARS");
+  fillCategorySelect(categorySelect);
+  splitError.hidden = true;
+  splitError.textContent = "";
 
   project.members.forEach((member) => {
     const option = document.createElement("option");
@@ -333,24 +516,196 @@ function openExpenseModal() {
       <span class="check">✓</span>
       <span>${memberLabel(project, member.id)}</span>
       <span class="split-value">$ 0,00</span>
+      <input class="manual-share" name="manualShare-${member.id}" inputmode="decimal" placeholder="0,00" />
     `;
+    row.querySelector(".manual-share").addEventListener("click", (event) => event.stopPropagation());
     splitMembers.append(row);
   });
 
+  expenseForm.splitMode.value = "equal";
   expenseForm.date.value = new Date().toISOString().slice(0, 10);
   updateSplitPreview();
   expenseModal.showModal();
 }
 
+function openProjectModal() {
+  projectForm.reset();
+  projectParticipants.replaceChildren();
+  projectError.hidden = true;
+  projectError.textContent = "";
+  fillCurrencySelect(projectCurrencySelect, "ARS");
+  addParticipantRow("Leo", true);
+  addParticipantRow("", false);
+  projectModal.showModal();
+  projectForm.querySelector("[name='name']").focus();
+}
+
+function addParticipantRow(name = "", isMe = false) {
+  addParticipantInput(projectParticipants, { name, isMe });
+}
+
+function openProjectSettingsModal() {
+  const project = getActiveProject();
+  projectSettingsForm.reset();
+  editProjectParticipants.replaceChildren();
+  projectSettingsError.hidden = true;
+  projectSettingsError.textContent = "";
+  fillCurrencySelect(editProjectCurrencySelect, project.defaultCurrency ?? "ARS");
+  document.querySelector("#archiveProjectButton").textContent = project.archived ? "Restaurar truchicount" : "Archivar truchicount";
+
+  project.members.forEach((member) => {
+    addEditParticipantRow(member.name, member.isMe, member.id, isMemberUsed(project, member.id));
+  });
+
+  projectSettingsModal.showModal();
+}
+
+function toggleActiveProjectArchive() {
+  const project = getActiveProject();
+  project.archived = !project.archived;
+  saveState();
+  projectSettingsModal.close();
+  if (project.archived) showHome();
+  else renderDetail();
+}
+
+function addEditParticipantRow(name = "", isMe = false, memberId = "", isLocked = false) {
+  addParticipantInput(editProjectParticipants, { name, isMe, memberId, isLocked });
+}
+
+function addParticipantInput(container, { name = "", isMe = false, memberId = "", isLocked = false } = {}) {
+  const row = document.createElement("label");
+  row.className = "participant-row";
+  row.dataset.memberId = memberId;
+  row.classList.toggle("is-locked", isLocked);
+  row.innerHTML = `
+    <span>${isMe ? "◕" : "＋"}</span>
+    <input name="participantName" placeholder="Participant Name" value="${escapeHtml(name)}" />
+    ${isMe ? '<span class="me-badge">Me</span>' : '<button class="delete-button" type="button" aria-label="Quitar participante">×</button>'}
+  `;
+
+  const deleteButton = row.querySelector(".delete-button");
+  if (deleteButton) {
+    deleteButton.disabled = isLocked;
+    deleteButton.title = isLocked ? "Tiene gastos cargados" : "";
+    deleteButton.addEventListener("click", () => {
+      if (!isLocked) row.remove();
+    });
+  }
+
+  container.append(row);
+  if (!name) row.querySelector("input").focus();
+}
+
+function getProjectParticipantNames() {
+  return [...projectParticipants.querySelectorAll("[name='participantName']")]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+}
+
+function getEditedMembers(project) {
+  const usedMemberIds = [];
+  const members = [...editProjectParticipants.querySelectorAll(".participant-row")]
+    .map((row, index) => {
+      const name = row.querySelector("[name='participantName']").value.trim();
+      if (!name) return null;
+
+      const existingId = row.dataset.memberId;
+      const id = existingId || uniqueSettingId(slugify(name) || `member-${index + 1}`, usedMemberIds);
+      usedMemberIds.push(id);
+
+      return {
+        id,
+        name,
+        isMe: project.members.find((member) => member.id === existingId)?.isMe ?? index === 0,
+      };
+    })
+    .filter(Boolean);
+
+  if (members.length && !members.some((member) => member.isMe)) members[0].isMe = true;
+  return members;
+}
+
+function isMemberUsed(project, memberId) {
+  return project.expenses.some((expense) => expense.paidBy === memberId || expense.splitWith?.includes(memberId));
+}
+
+function renderSettings() {
+  categoryList.replaceChildren();
+  currencyList.replaceChildren();
+
+  state.settings.categories.forEach((category) => {
+    const row = document.createElement("article");
+    row.className = "settings-row";
+    row.innerHTML = `
+      <span>${category.emoji}</span>
+      <strong>${category.name}</strong>
+      <button class="delete-button" type="button" aria-label="Borrar categoria">×</button>
+    `;
+    row.querySelector("button").addEventListener("click", () => deleteCategory(category.id));
+    categoryList.append(row);
+  });
+
+  state.settings.currencies.forEach((currency) => {
+    const row = document.createElement("article");
+    row.className = "settings-row";
+    row.innerHTML = `
+      <span>${currency.symbol ?? currency.code}</span>
+      <strong>${currency.name}</strong>
+      <small>${currency.code}</small>
+    `;
+    currencyList.append(row);
+  });
+}
+
+function deleteCategory(categoryId) {
+  if (state.settings.categories.length <= 1) return;
+  state.settings.categories = state.settings.categories.filter((category) => category.id !== categoryId);
+  saveState();
+  renderSettings();
+}
+
+function fillCurrencySelect(select, selectedCode) {
+  select.replaceChildren();
+  state.settings.currencies.forEach((currency) => {
+    const option = document.createElement("option");
+    option.value = currency.code;
+    option.textContent = `${currency.code} ${currency.symbol ?? ""}`.trim();
+    option.selected = currency.code === selectedCode;
+    select.append(option);
+  });
+}
+
+function fillCategorySelect(select) {
+  select.replaceChildren();
+  state.settings.categories.forEach((category) => {
+    const option = document.createElement("option");
+    option.value = category.id;
+    option.textContent = `${category.emoji} ${category.name}`;
+    select.append(option);
+  });
+}
+
 function updateSplitPreview() {
   const amount = parseAmount(expenseForm.amount.value);
+  const splitMode = expenseForm.splitMode.value;
   const checkedRows = [...splitMembers.querySelectorAll(".split-row")].filter((row) =>
     row.querySelector("input").checked
   );
   const share = checkedRows.length ? amount / checkedRows.length : 0;
 
+  splitMembers.classList.toggle("is-manual", splitMode === "manual");
+  splitError.hidden = true;
+  splitError.textContent = "";
+
   splitMembers.querySelectorAll(".split-row").forEach((row) => {
-    row.querySelector(".split-value").textContent = row.querySelector("input").checked ? formatMoney(share) : formatMoney(0);
+    const checkbox = row.querySelector("[name='splitWith']");
+    const manualInput = row.querySelector(".manual-share");
+    const isChecked = checkbox.checked;
+
+    row.querySelector(".split-value").textContent = isChecked ? formatMoney(share) : formatMoney(0);
+    manualInput.disabled = !isChecked || splitMode !== "manual";
+    if (splitMode === "equal") manualInput.value = isChecked && amount ? formatPlainAmount(share) : "";
   });
 }
 
@@ -359,8 +714,9 @@ function calculateBalances(project) {
 
   project.expenses.forEach((expense) => {
     balances[expense.paidBy] += expense.amount;
-    const share = expense.amount / expense.splitWith.length;
-    expense.splitWith.forEach((memberId) => {
+    const shares = getExpenseShares(expense);
+    Object.entries(shares).forEach(([memberId, share]) => {
+      if (balances[memberId] === undefined) return;
       balances[memberId] -= share;
     });
   });
@@ -384,6 +740,57 @@ function calculateBalances(project) {
   });
 
   return { balances, settlements };
+}
+
+function buildSplitShares(amount, splitMode, splitWith) {
+  const selectedIds = splitWith;
+
+  if (splitMode === "manual") {
+    return Object.fromEntries(
+      selectedIds
+        .map((memberId) => [memberId, parseAmount(expenseForm.elements[`manualShare-${memberId}`]?.value)])
+        .filter(([, share]) => share > 0)
+    );
+  }
+
+  const share = selectedIds.length ? roundMoney(amount / selectedIds.length) : 0;
+  const shares = Object.fromEntries(selectedIds.map((memberId) => [memberId, share]));
+  const remainder = roundMoney(amount - Object.values(shares).reduce((sum, value) => sum + value, 0));
+  if (selectedIds[0]) shares[selectedIds[0]] = roundMoney(shares[selectedIds[0]] + remainder);
+  return shares;
+}
+
+function validateSplit(amount, shares, splitMode) {
+  const totalShares = Object.values(shares).reduce((sum, value) => sum + value, 0);
+
+  if (amount <= 0) {
+    showSplitError("El monto tiene que ser mayor a cero.");
+    return false;
+  }
+
+  if (!Object.keys(shares).length) {
+    showSplitError("Selecciona al menos una persona para dividir el gasto.");
+    return false;
+  }
+
+  if (splitMode === "manual" && Math.abs(totalShares - amount) > 0.01) {
+    showSplitError(`El split manual suma ${formatMoney(totalShares)} y el gasto es ${formatMoney(amount)}.`);
+    return false;
+  }
+
+  return true;
+}
+
+function showSplitError(message) {
+  splitError.textContent = message;
+  splitError.hidden = false;
+}
+
+function getExpenseShares(expense) {
+  if (expense.shares) return expense.shares;
+  const splitWith = expense.splitWith?.length ? expense.splitWith : [];
+  const share = splitWith.length ? expense.amount / splitWith.length : 0;
+  return Object.fromEntries(splitWith.map((memberId) => [memberId, share]));
 }
 
 function groupByDate(expenses) {
@@ -412,6 +819,11 @@ function memberLabel(project, memberId) {
   return member.isMe ? `${member.name} (me)` : member.name;
 }
 
+function categoryEmoji(categoryId) {
+  const category = state.settings.categories.find((item) => item.id === categoryId || item.name === categoryId);
+  return category?.emoji ?? "🧾";
+}
+
 function formatMoney(amount, currency = "ARS") {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -437,6 +849,17 @@ function parseAmount(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatPlainAmount(amount) {
+  return new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function roundMoney(amount) {
+  return Math.round((amount + Number.EPSILON) * 100) / 100;
+}
+
 function slugify(value) {
   return value
     .toLowerCase()
@@ -444,6 +867,55 @@ function slugify(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+}
+
+function uniqueSettingId(baseId, existingIds) {
+  const fallback = baseId || "item";
+  let id = fallback;
+  let index = 2;
+  while (existingIds.includes(id)) {
+    id = `${fallback}-${index}`;
+    index += 1;
+  }
+  return id;
+}
+
+function normalizeState(rawState) {
+  const normalized = {
+    ...rawState,
+    settings: {
+      categories: rawState.settings?.categories?.length ? rawState.settings.categories : cloneData(defaultSettings.categories),
+      currencies: rawState.settings?.currencies?.length ? rawState.settings.currencies : cloneData(defaultSettings.currencies),
+    },
+  };
+
+  normalized.projects = normalized.projects.map((project) => ({
+    ...project,
+    defaultCurrency: project.defaultCurrency ?? "ARS",
+  }));
+
+  normalized.projects.forEach((project) => {
+    project.expenses.forEach((expense) => {
+      const category = normalized.settings.categories.find((item) => item.name === expense.category);
+      if (category) expense.category = category.id;
+    });
+  });
+
+  return normalized;
+}
+
+function setSelectedNav(viewName) {
+  document.querySelectorAll("[data-view]").forEach((button) => {
+    button.classList.toggle("is-selected", button.dataset.view === viewName);
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function cloneData(value) {

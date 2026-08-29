@@ -17,48 +17,81 @@
       <section class="screen screen-home is-active" id="homeScreen">
         <header class="home-header">
           <div>
-            <p class="eyebrow">by buna</p>
             <h1><span>truchi</span>count</h1>
           </div>
-          <button class="icon-button" id="seedButton" type="button" title="Cargar ejemplo">↻</button>
+          <div class="header-actions">
+            <nav class="top-nav" aria-label="Navegacion principal">
+              <button class="nav-item is-selected" type="button" data-view="home">
+                <strong>tt</strong>
+                <span>truchicounts</span>
+              </button>
+              <button class="nav-item" type="button" data-view="archived">
+                <strong>□</strong>
+                <span>Archivados</span>
+              </button>
+              <button class="nav-item" type="button" data-view="settings">
+                <strong>⚙</strong>
+                <span>Settings</span>
+              </button>
+            </nav>
+            <button class="primary-button compact-action" id="newProjectButton" type="button">New truchicount</button>
+          </div>
         </header>
 
         <section class="project-list" id="projectList"></section>
+      </section>
 
-        <button class="fab" id="newProjectButton" type="button" aria-label="Nuevo truchicount">
-          <span>+</span>
-          <small>New truchicount</small>
-        </button>
+      <section class="screen screen-archived" id="archivedScreen" hidden>
+        <header class="settings-header">
+          <button class="round-button" id="archivedBackButton" type="button" aria-label="Volver">‹</button>
+          <h2>Archivados</h2>
+        </header>
+        <section class="project-list" id="archivedProjectList"></section>
+      </section>
 
-        <nav class="bottom-nav" aria-label="Navegacion principal">
-          <button class="nav-item is-selected" type="button">
-            <strong>tt</strong>
-            <span>truchicounts</span>
-          </button>
-          <button class="nav-item" type="button">
-            <strong>$</strong>
-            <span>Requests</span>
-          </button>
-          <button class="nav-item" type="button">
-            <strong>▭</strong>
-            <span>Free Card</span>
-          </button>
-          <button class="nav-item" type="button">
-            <strong>◕</strong>
-            <span>Profile</span>
-          </button>
-        </nav>
+      <section class="screen screen-settings" id="settingsScreen" hidden>
+        <header class="settings-header">
+          <button class="round-button" id="settingsBackButton" type="button" aria-label="Volver">‹</button>
+          <h2>Settings</h2>
+        </header>
+
+        <section class="settings-section">
+          <div class="section-heading">
+            <h3>Categorias</h3>
+          </div>
+          <div class="settings-list" id="categoryList"></div>
+          <form class="inline-form" id="categoryForm">
+            <input name="emoji" placeholder="🧾" aria-label="Emoji categoria" />
+            <input name="name" placeholder="Nueva categoria" required aria-label="Nombre categoria" />
+            <button type="submit">+</button>
+          </form>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-heading">
+            <h3>Monedas</h3>
+          </div>
+          <div class="settings-list" id="currencyList"></div>
+          <form class="inline-form" id="currencyForm">
+            <input name="code" placeholder="ARS" maxlength="3" required aria-label="Codigo moneda" />
+            <input name="name" placeholder="Argentine Peso" required aria-label="Nombre moneda" />
+            <button type="submit">+</button>
+          </form>
+        </section>
       </section>
 
       <section class="screen screen-detail" id="detailScreen" hidden>
         <header class="detail-header">
           <div class="toolbar">
             <button class="round-button" id="backButton" type="button" aria-label="Volver">‹</button>
-            <button class="round-button" id="menuButton" type="button" aria-label="Menu">···</button>
           </div>
           <div class="project-title">
-            <span id="detailEmoji">🏡</span>
             <h2 id="detailTitle">Depto - Mayo '26</h2>
+            <span class="status-pill" id="detailStatus" hidden>Archivado</span>
+          </div>
+          <div class="detail-actions">
+            <button class="primary-button compact-action" id="addExpenseButton" type="button">Add Expense</button>
+            <button class="round-button" id="menuButton" type="button" aria-label="Menu">···</button>
           </div>
           <div class="tabs" role="tablist" aria-label="Vistas del proyecto">
             <button class="tab is-selected" data-tab="expenses" type="button">Expenses</button>
@@ -96,11 +129,6 @@
             <span>Las fotos de tickets van a vivir aca cuando conectemos storage.</span>
           </div>
         </section>
-
-        <button class="fab detail-fab" id="addExpenseButton" type="button" aria-label="Agregar gasto">
-          <span>+</span>
-          <small>Add Expense</small>
-        </button>
       </section>
     </main>
 
@@ -113,87 +141,97 @@
           <input name="name" placeholder="Vacaciones Bariloche" required />
         </label>
         <label>
-          Emoji
-          <input name="emoji" placeholder="🏔️" maxlength="4" />
+          Moneda
+          <select name="currency" id="projectCurrencySelect"></select>
         </label>
-        <label>
-          Personas
-          <input name="members" placeholder="Leo, Aldu, Juli" required />
-        </label>
+        <div>
+          <h3 class="form-heading">Participants</h3>
+          <div class="participant-box" id="projectParticipants"></div>
+          <button class="text-button" id="addProjectParticipant" type="button">Add Another Participant</button>
+        </div>
+        <p class="form-error" id="projectError" hidden></p>
         <button class="primary-button" type="submit">Crear</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="projectSettingsModal">
+      <form method="dialog" class="modal-card" id="projectSettingsForm">
+        <button class="close-button" value="cancel" type="button" data-close-project-settings>×</button>
+        <h2>Edit truchicount</h2>
+        <label>
+          Moneda
+          <select name="currency" id="editProjectCurrencySelect"></select>
+        </label>
+        <div>
+          <h3 class="form-heading">Participants</h3>
+          <div class="participant-box" id="editProjectParticipants"></div>
+          <button class="text-button" id="addEditProjectParticipant" type="button">Add Another Participant</button>
+        </div>
+        <p class="form-error" id="projectSettingsError" hidden></p>
+        <button class="secondary-button" id="archiveProjectButton" type="button">Archivar truchicount</button>
+        <button class="primary-button" type="submit">Guardar</button>
       </form>
     </dialog>
 
     <dialog class="modal" id="expenseModal">
       <form method="dialog" class="modal-card expense-form" id="expenseForm">
         <button class="close-button" value="cancel" type="button" data-close-expense>×</button>
-        <h2>Add Expense</h2>
-
-        <div class="segmented" role="group" aria-label="Tipo de movimiento">
-          <button class="is-selected" type="button">Expense</button>
-          <button type="button">Income</button>
-          <button type="button">Transfer</button>
+        <div class="modal-heading">
+          <h2>Agregar gasto</h2>
+          <p>Registrá quién pagó y cómo se divide.</p>
         </div>
 
-        <label>
-          Title
-          <input name="title" placeholder="E.g. Drinks" required />
-        </label>
-
-        <div class="amount-grid">
+        <section class="form-section">
           <label>
-            Moneda
-            <select name="currency">
-              <option value="ARS">ARS $</option>
-              <option value="USD">USD $</option>
-              <option value="BRL">BRL R$</option>
-            </select>
+            Título
+            <input name="title" placeholder="Ej. Supermercado" required />
           </label>
           <label>
-            Amount
+            Categoría
+            <select name="category" id="categorySelect"></select>
+          </label>
+        </section>
+
+        <section class="form-section form-grid">
+          <label class="amount-field">
+            Monto
             <input name="amount" inputmode="decimal" placeholder="0,00" required />
           </label>
-        </div>
-
-        <div class="two-columns">
           <label>
-            Paid By
+            Moneda
+            <select name="currency" id="expenseCurrencySelect"></select>
+          </label>
+        </section>
+
+        <section class="form-section form-grid">
+          <label>
+            Pagado por
             <select name="paidBy" id="paidBySelect"></select>
           </label>
           <label>
-            When
+            Fecha
             <input name="date" type="date" required />
           </label>
-        </div>
+        </section>
 
-        <label>
-          Categoria
-          <select name="category">
-            <option value="Groceries">🛒 Groceries</option>
-            <option value="Restaurants & Bars">🍔 Restaurants & Bars</option>
-            <option value="Rent & Charges">🏠 Rent & Charges</option>
-            <option value="Pet">🐾 Pet</option>
-            <option value="Transport">🚕 Transport</option>
-            <option value="Other">✋ Other</option>
-          </select>
-        </label>
+        <section class="form-section split-section">
+          <div class="split-header">
+            <strong>División</strong>
+            <select name="splitMode">
+              <option value="equal">En partes iguales</option>
+              <option value="manual">Manual</option>
+            </select>
+          </div>
+          <div class="split-box" id="splitMembers"></div>
+          <p class="form-error" id="splitError" hidden></p>
+        </section>
 
-        <div class="split-header">
-          <strong>Split</strong>
-          <select name="splitMode">
-            <option value="equal">Equally</option>
-            <option value="manual">Manual</option>
-          </select>
-        </div>
-        <div class="split-box" id="splitMembers"></div>
-
-        <button class="primary-button" type="submit">Add</button>
+        <button class="primary-button" type="submit">Guardar gasto</button>
       </form>
     </dialog>
 
     <template id="projectTemplate">
       <button class="project-card" type="button">
-        <span class="project-emoji"></span>
         <span class="project-copy">
           <strong></strong>
           <small></small>

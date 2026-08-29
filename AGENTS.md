@@ -29,7 +29,8 @@ Por ahora debe mantenerse en HTML, CSS y JavaScript puro, sin frameworks ni buil
 
 ## Agentes Recomendados
 
-- UI y pantallas: leer `.agents/ui-mobile.md`.
+- UI mobile y pantallas tipo app: leer `.agents/ui-mobile.md`.
+- UI web/desktop y usabilidad amplia: leer `.agents/ui-web.md`.
 - Calculos y saldos: leer `.agents/split-logic.md`.
 - Firebase y persistencia: leer `.agents/firebase-data.md`.
 - Revision de producto y QA: leer `.agents/qa-product.md`.
