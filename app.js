@@ -141,13 +141,13 @@ const expenseCurrencySelect = document.querySelector("#expenseCurrencySelect");
 const categorySelect = document.querySelector("#categorySelect");
 const addExpenseButton = document.querySelector("#addExpenseButton");
 const detailStatus = document.querySelector("#detailStatus");
-const userButton = document.querySelector("#userButton");
+const accountButton = document.querySelector("#accountButton");
 const signOutButton = document.querySelector("#signOutButton");
 const copyInviteButton = document.querySelector("#copyInviteButton");
 const inviteLinkStatus = document.querySelector("#inviteLinkStatus");
 
 googleLoginButton.addEventListener("click", handleGoogleLogin);
-userButton.addEventListener("click", openAccountModal);
+accountButton.addEventListener("click", openAccountModal);
 accountForm.addEventListener("submit", handleProfileSave);
 signOutButton.addEventListener("click", handleSignOut);
 document.querySelector("#newProjectButton").addEventListener("click", openProjectModal);
@@ -337,6 +337,9 @@ async function handleGoogleLogin() {
 }
 
 async function handleSignOut() {
+  const wantsSignOut = confirm("¿Querés cerrar sesión?");
+  if (!wantsSignOut) return;
+
   try {
     accountModal.close();
     await signOutUser();
@@ -374,8 +377,8 @@ function renderAuthState() {
   if (!isLoggedIn) return;
 
   const name = authUser.displayName || authUser.email || "Usuario";
-  userButton.textContent = initialsFromName(name);
-  userButton.title = `Abrir cuenta de ${name}`;
+  accountButton.textContent = initialsFromName(name);
+  accountButton.title = `Abrir cuenta de ${name}`;
 
   if (pendingInvite) {
     openInviteModal(pendingInvite);
