@@ -1,3 +1,5 @@
+import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase-auth.js";
+
 const storageKey = "truchicount:v1";
 
 const defaultSettings = {
@@ -91,7 +93,12 @@ const exampleState = {
 let state = loadState();
 let activeTab = "expenses";
 let detailReturnView = "home";
+let authUser = null;
 
+const loginScreen = document.querySelector("#loginScreen");
+const googleLoginButton = document.querySelector("#googleLoginButton");
+const authError = document.querySelector("#authError");
+const appShell = document.querySelector(".app-shell");
 const homeScreen = document.querySelector("#homeScreen");
 const detailScreen = document.querySelector("#detailScreen");
 const settingsScreen = document.querySelector("#settingsScreen");
@@ -124,7 +131,10 @@ const expenseCurrencySelect = document.querySelector("#expenseCurrencySelect");
 const categorySelect = document.querySelector("#categorySelect");
 const addExpenseButton = document.querySelector("#addExpenseButton");
 const detailStatus = document.querySelector("#detailStatus");
+const userButton = document.querySelector("#userButton");
 
+googleLoginButton.addEventListener("click", handleGoogleLogin);
+userButton.addEventListener("click", handleSignOut);
 document.querySelector("#newProjectButton").addEventListener("click", openProjectModal);
 document.querySelector("[data-close-project]").addEventListener("click", () => projectModal.close());
 document.querySelector("[data-close-project-settings]").addEventListener("click", () => projectSettingsModal.close());
@@ -151,6 +161,12 @@ document.querySelectorAll(".tab").forEach((button) => {
     activeTab = button.dataset.tab;
     renderDetail();
   });
+});
+
+completeRedirectSignIn().catch(showAuthError);
+watchAuth((user) => {
+  authUser = user;
+  renderAuthState();
 });
 
 projectForm.addEventListener("submit", (event) => {
@@ -286,6 +302,52 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+async function handleGoogleLogin() {
+  authError.hidden = true;
+  googleLoginButton.disabled = true;
+
+  try {
+    await signInWithGoogle();
+  } catch (error) {
+    showAuthError(error);
+  } finally {
+    googleLoginButton.disabled = false;
+  }
+}
+
+async function handleSignOut() {
+  try {
+    await signOutUser();
+  } catch (error) {
+    showAuthError(error);
+  }
+}
+
+function renderAuthState() {
+  const isLoggedIn = Boolean(authUser);
+  loginScreen.hidden = isLoggedIn;
+  appShell.hidden = !isLoggedIn;
+
+  if (!isLoggedIn) return;
+
+  const name = authUser.displayName || authUser.email || "Usuario";
+  userButton.textContent = initialsFromName(name);
+  userButton.title = `Cerrar sesión de ${name}`;
+  showHome();
+}
+
+function showAuthError(error) {
+  authError.textContent = readableAuthError(error);
+  authError.hidden = false;
+}
+
+function readableAuthError(error) {
+  if (!error) return "No se pudo iniciar sesión.";
+  if (error.code === "auth/popup-closed-by-user") return "Se cerró la ventana de Google antes de terminar.";
+  if (error.code === "auth/unauthorized-domain") return "Este dominio no está autorizado en Firebase Authentication.";
+  return error.message || "No se pudo iniciar sesión.";
 }
 
 function resetExampleData() {
@@ -878,6 +940,15 @@ function uniqueSettingId(baseId, existingIds) {
     index += 1;
   }
   return id;
+}
+
+function initialsFromName(name) {
+  return String(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("");
 }
 
 function normalizeState(rawState) {

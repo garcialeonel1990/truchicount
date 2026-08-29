@@ -13,7 +13,20 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell" aria-live="polite">
+    <section class="login-screen" id="loginScreen">
+      <div class="login-card">
+        <p class="login-kicker">truchicount</p>
+        <h1>Dividí gastos sin hacer cuentas raras.</h1>
+        <p>Entrá con Google para preparar la app para datos reales en Firebase.</p>
+        <button class="primary-button google-button" id="googleLoginButton" type="button">
+          <span>G</span>
+          Continuar con Google
+        </button>
+        <p class="auth-error" id="authError" hidden></p>
+      </div>
+    </section>
+
+    <main class="app-shell" aria-live="polite" hidden>
       <section class="screen screen-home is-active" id="homeScreen">
         <header class="home-header">
           <div>
@@ -35,6 +48,7 @@
               </button>
             </nav>
             <button class="primary-button compact-action" id="newProjectButton" type="button">New truchicount</button>
+            <button class="user-button" id="userButton" type="button" title="Cerrar sesión"></button>
           </div>
         </header>
 

@@ -42,6 +42,77 @@ button {
   cursor: pointer;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+.login-screen {
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+}
+
+.login-card {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 460px);
+  padding: 34px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: rgba(8, 24, 43, 0.9);
+  box-shadow: var(--shadow);
+}
+
+.login-kicker {
+  margin: 0;
+  color: var(--blue);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: clamp(34px, 7vw, 54px);
+  line-height: 0.96;
+}
+
+.login-card p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.google-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.google-button span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(2, 17, 31, 0.92);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.google-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.auth-error {
+  color: var(--red) !important;
+  font-size: 14px;
+}
+
 .app-shell {
   position: relative;
   width: min(100%, 480px);
@@ -94,6 +165,19 @@ button {
   flex-wrap: wrap;
   gap: 12px;
   width: 100%;
+}
+
+.user-button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: rgba(56, 189, 248, 0.14);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .project-card,
