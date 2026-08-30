@@ -167,31 +167,36 @@ const approvalRequestList = document.querySelector("#approvalRequestList");
 const approvalStatus = document.querySelector("#approvalStatus");
 const pendingSignOutButton = document.querySelector("#pendingSignOutButton");
 
-googleLoginButton.addEventListener("click", handleGoogleLogin);
-accountButton.addEventListener("click", openAccountModal);
-accountForm.addEventListener("submit", handleProfileSave);
-signOutButton.addEventListener("click", handleSignOut);
-pendingSignOutButton.addEventListener("click", handleSignOut);
-document.querySelector("#newProjectButton").addEventListener("click", openProjectModal);
-document.querySelector("[data-close-project]").addEventListener("click", () => projectModal.close());
-document.querySelector("[data-close-project-settings]").addEventListener("click", () => {
+function on(element, eventName, handler) {
+  if (!element) return;
+  element.addEventListener(eventName, handler);
+}
+
+on(googleLoginButton, "click", handleGoogleLogin);
+on(accountButton, "click", openAccountModal);
+on(accountForm, "submit", handleProfileSave);
+on(signOutButton, "click", handleSignOut);
+on(pendingSignOutButton, "click", handleSignOut);
+on(document.querySelector("#newProjectButton"), "click", openProjectModal);
+on(document.querySelector("[data-close-project]"), "click", () => projectModal.close());
+on(document.querySelector("[data-close-project-settings]"), "click", () => {
   projectSettingsModal.close();
 });
-document.querySelector("[data-close-account]").addEventListener("click", () => {
+on(document.querySelector("[data-close-account]"), "click", () => {
   stopJoinRequestWatch();
   accountModal.close();
 });
-document.querySelector("[data-close-expense]").addEventListener("click", () => expenseModal.close());
-document.querySelector("#backButton").addEventListener("click", returnFromDetail);
-document.querySelector("#settingsBackButton").addEventListener("click", showHome);
-document.querySelector("#archivedBackButton").addEventListener("click", showHome);
-addExpenseButton.addEventListener("click", openExpenseModal);
-document.querySelector("#menuButton").addEventListener("click", openProjectSettingsModal);
-document.querySelector("#archiveProjectButton").addEventListener("click", toggleActiveProjectArchive);
-copyInviteButton.addEventListener("click", copyInviteLink);
-whatsappInviteButton.addEventListener("click", shareInviteByWhatsapp);
-document.querySelector("#addProjectParticipant").addEventListener("click", () => addParticipantRow());
-document.querySelector("#addEditProjectParticipant").addEventListener("click", () => addEditParticipantRow());
+on(document.querySelector("[data-close-expense]"), "click", () => expenseModal.close());
+on(document.querySelector("#backButton"), "click", returnFromDetail);
+on(document.querySelector("#settingsBackButton"), "click", showHome);
+on(document.querySelector("#archivedBackButton"), "click", showHome);
+on(addExpenseButton, "click", openExpenseModal);
+on(document.querySelector("#menuButton"), "click", openProjectSettingsModal);
+on(document.querySelector("#archiveProjectButton"), "click", toggleActiveProjectArchive);
+on(copyInviteButton, "click", copyInviteLink);
+on(whatsappInviteButton, "click", shareInviteByWhatsapp);
+on(document.querySelector("#addProjectParticipant"), "click", () => addParticipantRow());
+on(document.querySelector("#addEditProjectParticipant"), "click", () => addEditParticipantRow());
 
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
