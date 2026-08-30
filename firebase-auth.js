@@ -12,6 +12,7 @@ import {
 import {
   collection,
   doc,
+  getDoc,
   getFirestore,
   onSnapshot,
   serverTimestamp,
@@ -63,6 +64,22 @@ export function signOutUser() {
 
 export function updateUserProfile(displayName) {
   return updateProfile(auth.currentUser, { displayName });
+}
+
+export function saveProjectInvite(code, invite) {
+  return setDoc(doc(db, "invites", code), {
+    ...invite,
+    code,
+    createdBy: auth.currentUser?.uid ?? "",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function getProjectInvite(code) {
+  const snapshot = await getDoc(doc(db, "invites", code));
+  if (!snapshot.exists()) return null;
+  return snapshot.data();
 }
 
 export function requestProjectAccess(projectId, request) {

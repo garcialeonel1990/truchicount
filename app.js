@@ -1,7 +1,9 @@
 import {
   completeRedirectSignIn,
+  getProjectInvite,
   requestProjectAccess,
   reviewProjectAccess,
+  saveProjectInvite,
   signInWithGoogle,
   signOutUser,
   updateUserProfile,
@@ -158,6 +160,7 @@ const detailStatus = document.querySelector("#detailStatus");
 const accountButton = document.querySelector("#accountButton");
 const signOutButton = document.querySelector("#signOutButton");
 const copyInviteButton = document.querySelector("#copyInviteButton");
+const whatsappInviteButton = document.querySelector("#whatsappInviteButton");
 const inviteLinkStatus = document.querySelector("#inviteLinkStatus");
 const accountApprovalSection = document.querySelector("#accountApprovalSection");
 const approvalRequestList = document.querySelector("#approvalRequestList");
@@ -186,6 +189,7 @@ addExpenseButton.addEventListener("click", openExpenseModal);
 document.querySelector("#menuButton").addEventListener("click", openProjectSettingsModal);
 document.querySelector("#archiveProjectButton").addEventListener("click", toggleActiveProjectArchive);
 copyInviteButton.addEventListener("click", copyInviteLink);
+whatsappInviteButton.addEventListener("click", shareInviteByWhatsapp);
 document.querySelector("#addProjectParticipant").addEventListener("click", () => addParticipantRow());
 document.querySelector("#addEditProjectParticipant").addEventListener("click", () => addEditParticipantRow());
 
@@ -396,7 +400,7 @@ async function handleProfileSave(event) {
   }
 }
 
-function renderAuthState() {
+async function renderAuthState() {
   const isLoggedIn = Boolean(authUser);
   loginScreen.hidden = isLoggedIn;
   appShell.hidden = !isLoggedIn;
@@ -409,6 +413,8 @@ function renderAuthState() {
   ensureLocalProjectAdmins();
 
   if (pendingInvite) {
+    pendingInvite = await resolvePendingInvite(pendingInvite);
+    if (!pendingInvite) return;
     openInviteModal(pendingInvite);
     return;
   }
@@ -451,16 +457,30 @@ function readableFirestoreError(error) {
 }
 
 async function copyInviteLink() {
-  const project = getActiveProject();
-  const link = createInviteLink(project);
-
   inviteLinkStatus.hidden = false;
+  inviteLinkStatus.textContent = "Generando link corto...";
 
   try {
+    const link = await createInviteLink(getActiveProject());
     await navigator.clipboard.writeText(link);
-    inviteLinkStatus.textContent = "Link copiado. Mandáselo a la otra persona para que entre con Google.";
-  } catch {
-    inviteLinkStatus.textContent = link;
+    inviteLinkStatus.textContent = "Link corto copiado. También podés mandarlo por WhatsApp.";
+  } catch (error) {
+    inviteLinkStatus.textContent = readableFirestoreError(error);
+  }
+}
+
+async function shareInviteByWhatsapp() {
+  inviteLinkStatus.hidden = false;
+  inviteLinkStatus.textContent = "Preparando invitación...";
+
+  try {
+    const project = getActiveProject();
+    const link = await createInviteLink(project);
+    const text = `Te invito a ${project.name} en Truchicount: ${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+    inviteLinkStatus.textContent = "Abrí WhatsApp con el link corto listo para enviar.";
+  } catch (error) {
+    inviteLinkStatus.textContent = readableFirestoreError(error);
   }
 }
 
@@ -1291,25 +1311,29 @@ function currentUserMemberId(project) {
   return project.memberLinks?.[authUser.uid] ?? state.currentUserId;
 }
 
-function createInviteLink(project) {
+async function createInviteLink(project) {
+  const code = generateInviteCode();
   const payload = {
     id: project.id,
     name: project.name,
     adminUid: project.adminUid ?? authUser?.uid ?? "",
     defaultCurrency: project.defaultCurrency ?? "ARS",
     members: project.members,
-    expenses: project.expenses,
-    settings: state.settings,
   };
-  const encoded = encodeInvitePayload(payload);
+  await saveProjectInvite(code, payload);
+
   const url = new URL(window.location.href);
-  url.searchParams.set("invite", encoded);
+  url.search = "";
+  url.searchParams.set("join", code);
   url.hash = "";
   return url.toString();
 }
 
 function readInviteFromUrl() {
-  const inviteParam = new URLSearchParams(window.location.search).get("invite");
+  const params = new URLSearchParams(window.location.search);
+  const joinCode = params.get("join");
+  const inviteParam = params.get("invite");
+  if (joinCode) return { code: joinCode, isShortInvite: true };
   if (!inviteParam) return null;
 
   try {
@@ -1319,9 +1343,32 @@ function readInviteFromUrl() {
   }
 }
 
+async function resolvePendingInvite(invite) {
+  if (!invite?.isShortInvite) return invite;
+
+  try {
+    const storedInvite = await getProjectInvite(invite.code);
+    if (!storedInvite) {
+      authError.textContent = "Ese link de invitación no existe o venció.";
+      authError.hidden = false;
+      clearInviteFromUrl();
+      pendingInvite = null;
+      showHome();
+      return null;
+    }
+
+    return storedInvite;
+  } catch (error) {
+    authError.textContent = readableFirestoreError(error);
+    authError.hidden = false;
+    return null;
+  }
+}
+
 function clearInviteFromUrl() {
   const url = new URL(window.location.href);
   url.searchParams.delete("invite");
+  url.searchParams.delete("join");
   window.history.replaceState({}, "", url);
 }
 
@@ -1337,12 +1384,11 @@ function importInvitedProject(invite) {
       archived: false,
       memberLinks: {},
       members: invite.members,
-      expenses: invite.expenses ?? [],
+      expenses: [],
     };
     state.projects.unshift(project);
   }
 
-  state.settings = invite.settings ?? state.settings;
   return project;
 }
 
@@ -1382,6 +1428,17 @@ function decodeInvitePayload(value) {
   const binary = atob(padded);
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function generateInviteCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+
+  for (let index = 0; index < 6; index += 1) {
+    code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+
+  return code;
 }
 
 function setSelectedNav(viewName) {

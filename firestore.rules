@@ -11,5 +11,10 @@ service cloud.firestore {
       allow read: if signedIn();
       allow update: if signedIn();
     }
+
+    match /invites/{inviteCode} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+    }
   }
 }
