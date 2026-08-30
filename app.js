@@ -443,7 +443,9 @@ function readableAuthError(error) {
 
 function readableFirestoreError(error) {
   if (!error) return "No se pudo conectar con Firebase.";
-  if (error.code === "permission-denied") return "Firebase no permitió esta acción. Revisá las reglas de Firestore.";
+  if (error.code === "permission-denied") {
+    return "Firebase no permitió esta acción. En la terminal corré: firebase deploy --only firestore:rules";
+  }
   if (error.code === "unavailable") return "Firebase no está disponible ahora. Probá de nuevo en unos segundos.";
   return error.message || "No se pudo completar la acción en Firebase.";
 }
