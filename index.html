@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260829-4" />
+    <link rel="stylesheet" href="./styles.css?v=20260829-5" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -184,13 +184,6 @@
         <p class="form-error" id="projectSettingsError" hidden></p>
         <button class="secondary-button" id="copyInviteButton" type="button">Copiar link de invitación</button>
         <p class="form-note" id="inviteLinkStatus" hidden></p>
-        <section class="form-section approval-section" id="approvalSection" hidden>
-          <div class="section-heading compact-heading">
-            <h3>Solicitudes pendientes</h3>
-          </div>
-          <div class="request-list" id="approvalRequestList"></div>
-          <p class="form-note" id="approvalStatus" hidden></p>
-        </section>
         <button class="secondary-button" id="archiveProjectButton" type="button">Archivar truchicount</button>
         <button class="primary-button" type="submit">Guardar</button>
       </form>
@@ -208,6 +201,13 @@
           <input name="displayName" id="accountName" placeholder="Tu nombre" required />
         </label>
         <p class="form-error" id="accountError" hidden></p>
+        <section class="form-section approval-section" id="accountApprovalSection">
+          <div class="section-heading compact-heading">
+            <h3>Panel de admin</h3>
+          </div>
+          <div class="request-list" id="approvalRequestList"></div>
+          <p class="form-note" id="approvalStatus" hidden></p>
+        </section>
         <button class="secondary-button" id="signOutButton" type="button">Cerrar sesión</button>
         <button class="primary-button" type="submit">Guardar nombre</button>
       </form>
@@ -312,6 +312,6 @@
       </article>
     </template>
 
-    <script src="./app.js?v=20260829-4" type="module"></script>
+    <script src="./app.js?v=20260829-5" type="module"></script>
   </body>
 </html>

@@ -104,7 +104,7 @@ let activeTab = "expenses";
 let detailReturnView = "home";
 let authUser = null;
 let pendingInvite = readInviteFromUrl();
-let unsubscribeJoinRequests = null;
+let joinRequestUnsubscribers = [];
 let unsubscribePendingAccess = null;
 let activeJoinRequests = [];
 
@@ -159,7 +159,7 @@ const accountButton = document.querySelector("#accountButton");
 const signOutButton = document.querySelector("#signOutButton");
 const copyInviteButton = document.querySelector("#copyInviteButton");
 const inviteLinkStatus = document.querySelector("#inviteLinkStatus");
-const approvalSection = document.querySelector("#approvalSection");
+const accountApprovalSection = document.querySelector("#accountApprovalSection");
 const approvalRequestList = document.querySelector("#approvalRequestList");
 const approvalStatus = document.querySelector("#approvalStatus");
 const pendingSignOutButton = document.querySelector("#pendingSignOutButton");
@@ -172,10 +172,12 @@ pendingSignOutButton.addEventListener("click", handleSignOut);
 document.querySelector("#newProjectButton").addEventListener("click", openProjectModal);
 document.querySelector("[data-close-project]").addEventListener("click", () => projectModal.close());
 document.querySelector("[data-close-project-settings]").addEventListener("click", () => {
-  stopJoinRequestWatch();
   projectSettingsModal.close();
 });
-document.querySelector("[data-close-account]").addEventListener("click", () => accountModal.close());
+document.querySelector("[data-close-account]").addEventListener("click", () => {
+  stopJoinRequestWatch();
+  accountModal.close();
+});
 document.querySelector("[data-close-expense]").addEventListener("click", () => expenseModal.close());
 document.querySelector("#backButton").addEventListener("click", returnFromDetail);
 document.querySelector("#settingsBackButton").addEventListener("click", showHome);
@@ -267,7 +269,6 @@ projectSettingsForm.addEventListener("submit", (event) => {
   state.currentUserId = members.find((member) => member.isMe)?.id ?? members[0].id;
 
   saveState();
-  stopJoinRequestWatch();
   projectSettingsModal.close();
   renderDetail();
 });
@@ -365,6 +366,7 @@ async function handleSignOut() {
   if (!wantsSignOut) return;
 
   try {
+    stopJoinRequestWatch();
     accountModal.close();
     await signOutUser();
   } catch (error) {
@@ -385,6 +387,7 @@ async function handleProfileSave(event) {
   try {
     await updateUserProfile(displayName);
     authUser = { ...authUser, displayName };
+    stopJoinRequestWatch();
     accountModal.close();
     renderAuthState();
   } catch (error) {
@@ -419,6 +422,9 @@ function openAccountModal() {
   accountEmail.textContent = authUser?.email || "";
   accountError.hidden = true;
   accountError.textContent = "";
+  approvalStatus.hidden = true;
+  approvalStatus.textContent = "";
+  watchAdminJoinRequests();
   accountModal.showModal();
   accountName.focus();
 }
@@ -582,7 +588,6 @@ function renderHome() {
 }
 
 function showHome() {
-  stopJoinRequestWatch();
   archivedScreen.hidden = true;
   settingsScreen.hidden = true;
   detailScreen.hidden = true;
@@ -601,7 +606,6 @@ function showSettings() {
 }
 
 function showArchived() {
-  stopJoinRequestWatch();
   homeScreen.hidden = true;
   settingsScreen.hidden = true;
   detailScreen.hidden = true;
@@ -611,7 +615,6 @@ function showArchived() {
 }
 
 function showDetail(projectId, returnView = "home") {
-  stopJoinRequestWatch();
   state.activeProjectId = projectId;
   detailReturnView = returnView;
   saveState();
@@ -823,9 +826,6 @@ function openProjectSettingsModal() {
   projectSettingsError.textContent = "";
   inviteLinkStatus.hidden = true;
   inviteLinkStatus.textContent = "";
-  approvalStatus.hidden = true;
-  approvalStatus.textContent = "";
-  approvalSection.hidden = !isProjectAdmin(project);
   fillCurrencySelect(editProjectCurrencySelect, project.defaultCurrency ?? "ARS");
   document.querySelector("#archiveProjectButton").textContent = project.archived ? "Restaurar truchicount" : "Archivar truchicount";
 
@@ -833,54 +833,61 @@ function openProjectSettingsModal() {
     addEditParticipantRow(member.name, member.isMe, member.id, isMemberUsed(project, member.id));
   });
 
-  if (isProjectAdmin(project)) {
-    watchAdminJoinRequests(project);
-  } else {
-    stopJoinRequestWatch();
-  }
-
   projectSettingsModal.showModal();
 }
 
-function watchAdminJoinRequests(project) {
+function watchAdminJoinRequests() {
   stopJoinRequestWatch();
+  activeJoinRequests = [];
+  const adminProjects = state.projects.filter(isProjectAdmin);
+  accountApprovalSection.hidden = false;
+
+  if (!adminProjects.length) {
+    approvalRequestList.innerHTML = `<div class="empty-row">No administrás ningún truchicount todavía.</div>`;
+    return;
+  }
+
   approvalRequestList.innerHTML = `<div class="empty-row">Buscando solicitudes...</div>`;
 
-  unsubscribeJoinRequests = watchProjectJoinRequests(project.id, (requests, error) => {
-    if (error) {
-      approvalRequestList.innerHTML = `<div class="empty-row">No se pudieron cargar las solicitudes.</div>`;
-      approvalStatus.textContent = readableFirestoreError(error);
-      approvalStatus.hidden = false;
-      return;
-    }
+  adminProjects.forEach((project) => {
+    const unsubscribe = watchProjectJoinRequests(project.id, (requests, error) => {
+      if (error) {
+        approvalRequestList.innerHTML = `<div class="empty-row">No se pudieron cargar las solicitudes.</div>`;
+        approvalStatus.textContent = readableFirestoreError(error);
+        approvalStatus.hidden = false;
+        return;
+      }
 
-    activeJoinRequests = requests;
-    renderApprovalRequests(project);
+      activeJoinRequests = activeJoinRequests.filter((item) => item.project.id !== project.id);
+      activeJoinRequests.push(...requests.map((request) => ({ project, request })));
+      renderApprovalRequests();
+    });
+    joinRequestUnsubscribers.push(unsubscribe);
   });
 }
 
 function stopJoinRequestWatch() {
-  if (!unsubscribeJoinRequests) return;
-  unsubscribeJoinRequests();
-  unsubscribeJoinRequests = null;
+  joinRequestUnsubscribers.forEach((unsubscribe) => unsubscribe());
+  joinRequestUnsubscribers = [];
+  activeJoinRequests = [];
 }
 
-function renderApprovalRequests(project) {
+function renderApprovalRequests() {
   approvalRequestList.replaceChildren();
-  const pendingRequests = activeJoinRequests.filter((request) => request.status === "pending");
+  const pendingRequests = activeJoinRequests.filter(({ request }) => request.status === "pending");
 
   if (!pendingRequests.length) {
     approvalRequestList.innerHTML = `<div class="empty-row">No hay solicitudes pendientes.</div>`;
     return;
   }
 
-  pendingRequests.forEach((request) => {
+  pendingRequests.forEach(({ project, request }) => {
     const row = document.createElement("article");
     row.className = "request-row";
     row.innerHTML = `
       <span>
         <strong>${escapeHtml(request.displayName || request.email || "Invitado")}</strong>
-        <small>Quiere entrar como ${escapeHtml(request.memberName || "participante")}</small>
+        <small>${escapeHtml(project.name)} · quiere entrar como ${escapeHtml(request.memberName || "participante")}</small>
       </span>
       <span class="request-actions">
         <button class="secondary-button small-action" type="button" data-review="rejected">Rechazar</button>
@@ -919,7 +926,6 @@ function toggleActiveProjectArchive() {
   const project = getActiveProject();
   project.archived = !project.archived;
   saveState();
-  stopJoinRequestWatch();
   projectSettingsModal.close();
   if (project.archived) showHome();
   else renderDetail();
