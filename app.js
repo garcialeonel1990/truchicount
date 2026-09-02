@@ -846,10 +846,12 @@ async function handleReceiptImage() {
   if (!file) return;
 
   scanReceiptButton.disabled = true;
-  showScanStatus("Leyendo ticket...");
+  showScanStatus("Mejorando foto del ticket...");
 
   try {
-    const text = await readReceiptText(file);
+    const image = await prepareReceiptImage(file);
+    showScanStatus("Leyendo ticket...");
+    const text = await readReceiptText(image);
     const detected = parseReceiptText(text);
     applyReceiptDetection(detected, text);
     showScanStatus(detected.hasUsefulData ? "Revisá los datos antes de guardar el gasto." : "No se pudieron leer todos los datos. Completá o corregí el formulario manualmente.");
@@ -861,10 +863,113 @@ async function handleReceiptImage() {
   }
 }
 
-async function readReceiptText(file) {
+async function readReceiptText(image) {
   await loadTesseract();
-  const result = await window.Tesseract.recognize(file, "spa+eng");
+  const result = await window.Tesseract.recognize(image, "spa+eng", {
+    tessedit_pageseg_mode: "6",
+    tessedit_char_whitelist: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÁÉÍÓÚÜÑáéíóúüñ.,:/-$% ",
+  });
   return result?.data?.text ?? "";
+}
+
+async function prepareReceiptImage(file) {
+  const bitmap = await loadReceiptBitmap(file);
+  const maxWidth = 1800;
+  const scale = Math.min(2.2, Math.max(1, maxWidth / bitmap.width));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.filter = "grayscale(1) contrast(1.45) brightness(1.08)";
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const threshold = otsuThreshold(data);
+
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const value = gray > threshold ? 255 : 0;
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+async function loadReceiptBitmap(file) {
+  if ("createImageBitmap" in window) {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      return loadReceiptImageElement(file);
+    }
+  }
+
+  return loadReceiptImageElement(file);
+}
+
+function loadReceiptImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("No se pudo abrir la foto."));
+    };
+    image.src = url;
+  });
+}
+
+function otsuThreshold(data) {
+  const histogram = new Array(256).fill(0);
+  let total = 0;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = Math.round(data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114);
+    histogram[gray] += 1;
+    total += 1;
+  }
+
+  let sum = 0;
+  histogram.forEach((count, value) => {
+    sum += value * count;
+  });
+
+  let backgroundWeight = 0;
+  let backgroundSum = 0;
+  let maxVariance = 0;
+  let threshold = 160;
+
+  histogram.forEach((count, value) => {
+    backgroundWeight += count;
+    if (!backgroundWeight) return;
+
+    const foregroundWeight = total - backgroundWeight;
+    if (!foregroundWeight) return;
+
+    backgroundSum += value * count;
+    const backgroundMean = backgroundSum / backgroundWeight;
+    const foregroundMean = (sum - backgroundSum) / foregroundWeight;
+    const variance = backgroundWeight * foregroundWeight * (backgroundMean - foregroundMean) ** 2;
+
+    if (variance > maxVariance) {
+      maxVariance = variance;
+      threshold = value;
+    }
+  });
+
+  return Math.min(210, Math.max(110, threshold));
 }
 
 function loadTesseract() {
@@ -948,23 +1053,37 @@ function detectReceiptMerchant(lines) {
 
 function detectReceiptAmount(lines) {
   const amountCandidates = [];
-  const priorityWords = /\b(total|importe|monto|pagar|saldo)\b/i;
+  const priorityWords = /\b(total|importe|monto|pagar|saldo|efectivo|debito|credito)\b/i;
+  const ignoredWords = /\b(cuit|fecha|hora|ticket|factura|cae|iibb|ingresos|brutos|dni|telefono|tel)\b/i;
 
   lines.forEach((line, index) => {
-    const nearbyText = `${line} ${lines[index + 1] ?? ""}`;
+    if (ignoredWords.test(line) && !priorityWords.test(line)) return;
+
+    const nearbyText = `${lines[index - 1] ?? ""} ${line} ${lines[index + 1] ?? ""}`;
     const values = extractMoneyValues(nearbyText);
     values.forEach((value) => {
-      amountCandidates.push({ value, priority: priorityWords.test(nearbyText) });
+      if (value < 1 || value > 10000000) return;
+      amountCandidates.push({
+        value,
+        priority: priorityWords.test(nearbyText),
+        lineIndex: index,
+      });
     });
   });
 
   const prioritized = amountCandidates.filter((candidate) => candidate.priority);
   const candidates = prioritized.length ? prioritized : amountCandidates;
-  return candidates.reduce((max, candidate) => Math.max(max, candidate.value), 0);
+  return candidates
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return Number(b.priority) - Number(a.priority);
+      if (a.lineIndex !== b.lineIndex) return b.lineIndex - a.lineIndex;
+      return b.value - a.value;
+    })
+    .at(0)?.value ?? 0;
 }
 
 function extractMoneyValues(text) {
-  const matches = text.match(/(?:\$|ars)?\s*\d{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})|\d+[,.]\d{2}/gi) ?? [];
+  const matches = text.match(/(?:\$|ars)?\s*\d{1,3}(?:[.\s]\d{3})+(?:[,.]\d{2})?|(?:\$|ars)?\s*\d+[,.]\d{2}/gi) ?? [];
   return matches.map(parseReceiptAmountValue).filter((value) => value > 0);
 }
 
