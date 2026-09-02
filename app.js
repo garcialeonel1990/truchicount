@@ -147,6 +147,9 @@ const currencyForm = document.querySelector("#currencyForm");
 const paidBySelect = document.querySelector("#paidBySelect");
 const splitMembers = document.querySelector("#splitMembers");
 const splitError = document.querySelector("#splitError");
+const scanReceiptButton = document.querySelector("#scanReceiptButton");
+const receiptInput = document.querySelector("#receiptInput");
+const scanStatus = document.querySelector("#scanStatus");
 const projectParticipants = document.querySelector("#projectParticipants");
 const projectError = document.querySelector("#projectError");
 const editProjectParticipants = document.querySelector("#editProjectParticipants");
@@ -195,6 +198,8 @@ on(document.querySelector("#menuButton"), "click", openProjectSettingsModal);
 on(document.querySelector("#archiveProjectButton"), "click", toggleActiveProjectArchive);
 on(copyInviteButton, "click", copyInviteLink);
 on(whatsappInviteButton, "click", shareInviteByWhatsapp);
+on(scanReceiptButton, "click", () => receiptInput?.click());
+on(receiptInput, "change", handleReceiptImage);
 on(document.querySelector("#addProjectParticipant"), "click", () => addParticipantRow());
 on(document.querySelector("#addEditProjectParticipant"), "click", () => addEditParticipantRow());
 
@@ -328,6 +333,11 @@ expenseForm.addEventListener("submit", (event) => {
     currency: data.get("currency"),
     paidBy: data.get("paidBy"),
     date: data.get("date"),
+    merchant: data.get("merchant")?.trim() ?? "",
+    paymentMethod: data.get("paymentMethod")?.trim() ?? "",
+    notes: data.get("notes")?.trim() ?? "",
+    source: data.get("source") || "manual",
+    ocrText: data.get("source") === "ocr" ? data.get("ocrText") || "" : "",
     splitMode,
     splitWith: Object.keys(shares),
     shares,
@@ -335,6 +345,7 @@ expenseForm.addEventListener("submit", (event) => {
 
   saveState();
   expenseForm.reset();
+  resetReceiptScan();
   expenseModal.close();
   renderDetail();
 });
@@ -796,6 +807,7 @@ function renderBalances(project) {
 function openExpenseModal() {
   const project = getActiveProject();
   if (project.archived) return;
+  resetReceiptScan();
   paidBySelect.replaceChildren();
   splitMembers.replaceChildren();
   fillCurrencySelect(expenseCurrencySelect, project.defaultCurrency ?? "ARS");
@@ -827,6 +839,190 @@ function openExpenseModal() {
   expenseForm.date.value = new Date().toISOString().slice(0, 10);
   updateSplitPreview();
   expenseModal.showModal();
+}
+
+async function handleReceiptImage() {
+  const file = receiptInput?.files?.[0];
+  if (!file) return;
+
+  scanReceiptButton.disabled = true;
+  showScanStatus("Leyendo ticket...");
+
+  try {
+    const text = await readReceiptText(file);
+    const detected = parseReceiptText(text);
+    applyReceiptDetection(detected, text);
+    showScanStatus(detected.hasUsefulData ? "Revisá los datos antes de guardar el gasto." : "No se pudieron leer todos los datos. Completá o corregí el formulario manualmente.");
+  } catch (error) {
+    showScanStatus("No pudimos leer el ticket. Podés cargar el gasto manualmente.", true);
+  } finally {
+    scanReceiptButton.disabled = false;
+    receiptInput.value = "";
+  }
+}
+
+async function readReceiptText(file) {
+  await loadTesseract();
+  const result = await window.Tesseract.recognize(file, "spa+eng");
+  return result?.data?.text ?? "";
+}
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("No se pudo cargar OCR."));
+    document.head.append(script);
+  });
+}
+
+function parseReceiptText(text) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const compactText = lines.join(" ");
+  const merchant = detectReceiptMerchant(lines);
+  const amount = detectReceiptAmount(lines);
+  const date = detectReceiptDate(compactText);
+  const category = detectReceiptCategory(compactText);
+  const title = merchant ? `Compra en ${merchant}` : "Gasto escaneado de ticket";
+
+  return {
+    amount,
+    category,
+    date,
+    merchant,
+    title,
+    hasUsefulData: Boolean(amount || date || merchant || category),
+  };
+}
+
+function applyReceiptDetection(detected, text) {
+  expenseForm.elements.source.value = "ocr";
+  expenseForm.elements.ocrText.value = text.slice(0, 2000);
+
+  if (detected.title) expenseForm.elements.title.value = detected.title;
+  if (detected.merchant) expenseForm.elements.merchant.value = detected.merchant;
+  if (detected.amount) expenseForm.elements.amount.value = formatPlainAmount(detected.amount);
+  if (detected.date) expenseForm.elements.date.value = detected.date;
+  if (detected.category) categorySelect.value = detected.category;
+  if (!expenseForm.elements.notes.value) expenseForm.elements.notes.value = "Cargado desde foto de ticket.";
+
+  updateSplitPreview();
+}
+
+function showScanStatus(message, isError = false) {
+  if (!scanStatus) return;
+  scanStatus.textContent = message;
+  scanStatus.hidden = false;
+  scanStatus.classList.toggle("is-error", isError);
+}
+
+function resetReceiptScan() {
+  if (!expenseForm) return;
+  if (receiptInput) receiptInput.value = "";
+  if (scanReceiptButton) scanReceiptButton.disabled = false;
+  if (scanStatus) {
+    scanStatus.hidden = true;
+    scanStatus.textContent = "";
+    scanStatus.classList.remove("is-error");
+  }
+  if (expenseForm.elements.source) expenseForm.elements.source.value = "manual";
+  if (expenseForm.elements.ocrText) expenseForm.elements.ocrText.value = "";
+}
+
+function detectReceiptMerchant(lines) {
+  const ignored = /\b(cuit|iva|inicio|factura|ticket|consumidor|domicilio|ingresos|brutos|responsable|total)\b/i;
+  const merchantLine = lines.find((line) => {
+    const cleaned = line.replace(/[^a-zA-ZÀ-ÿ0-9 %&.-]/g, "").trim();
+    return cleaned.length >= 3 && !ignored.test(cleaned) && !/\d{2}[/-]\d{2}[/-]\d{2,4}/.test(cleaned);
+  });
+
+  return merchantLine ? toTitleCase(merchantLine.replace(/\s+/g, " ").slice(0, 36)) : "";
+}
+
+function detectReceiptAmount(lines) {
+  const amountCandidates = [];
+  const priorityWords = /\b(total|importe|monto|pagar|saldo)\b/i;
+
+  lines.forEach((line, index) => {
+    const nearbyText = `${line} ${lines[index + 1] ?? ""}`;
+    const values = extractMoneyValues(nearbyText);
+    values.forEach((value) => {
+      amountCandidates.push({ value, priority: priorityWords.test(nearbyText) });
+    });
+  });
+
+  const prioritized = amountCandidates.filter((candidate) => candidate.priority);
+  const candidates = prioritized.length ? prioritized : amountCandidates;
+  return candidates.reduce((max, candidate) => Math.max(max, candidate.value), 0);
+}
+
+function extractMoneyValues(text) {
+  const matches = text.match(/(?:\$|ars)?\s*\d{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})|\d+[,.]\d{2}/gi) ?? [];
+  return matches.map(parseReceiptAmountValue).filter((value) => value > 0);
+}
+
+function parseReceiptAmountValue(value) {
+  const cleaned = String(value).replace(/[^\d,.-]/g, "").replace(/\s/g, "");
+  if (!cleaned) return 0;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  const decimalSeparator = lastComma > lastDot ? "," : ".";
+  const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+  const normalized = cleaned.replaceAll(thousandsSeparator, "").replace(decimalSeparator, ".");
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function detectReceiptDate(text) {
+  const match = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/) || text.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (!match) return "";
+
+  if (match[0].includes("-") && match[1].length === 4) {
+    return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+  }
+
+  const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+  return `${year}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+}
+
+function detectReceiptCategory(text) {
+  const normalized = slugify(text);
+  const keywordGroups = [
+    { words: ["supermercado", "alimentos", "mercado", "coto", "carrefour", "dia", "jumbo", "disco"], names: ["groceries", "supermercado"] },
+    { words: ["nafta", "combustible", "ypf", "shell", "axion", "sube", "taxi", "uber"], names: ["transport", "transporte"] },
+    { words: ["farmacia", "medicamento", "perfumeria", "salud"], names: ["healthcare", "salud"] },
+    { words: ["restaurant", "restaurante", "comida", "cafe", "bar", "mcdonald", "burger"], names: ["restaurants-bars", "comida"] },
+    { words: ["ropa", "indumentaria", "calzado", "shopping"], names: ["shopping", "ropa"] },
+  ];
+
+  const group = keywordGroups.find((item) => item.words.some((word) => normalized.includes(word)));
+  if (!group) return "";
+
+  return findCategoryByNames(group.names);
+}
+
+function findCategoryByNames(names) {
+  const normalizedNames = names.map(slugify);
+  const category = state.settings.categories.find((item) => {
+    const id = slugify(item.id);
+    const name = slugify(item.name);
+    return normalizedNames.includes(id) || normalizedNames.includes(name);
+  });
+  return category?.id ?? "";
+}
+
+function toTitleCase(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/\b([a-záéíóúñü])/g, (match) => match.toUpperCase());
 }
 
 function openProjectModal() {

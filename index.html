@@ -243,6 +243,14 @@
           <p>Registrá quién pagó y cómo se divide.</p>
         </div>
 
+        <section class="scan-section mobile-only">
+          <input id="receiptInput" type="file" accept="image/*" capture="environment" hidden />
+          <input name="source" type="hidden" value="manual" />
+          <input name="ocrText" type="hidden" />
+          <button class="secondary-button scan-button" id="scanReceiptButton" type="button">Escanear ticket</button>
+          <p class="form-note" id="scanStatus" hidden></p>
+        </section>
+
         <section class="form-section">
           <label>
             Título
@@ -251,6 +259,21 @@
           <label>
             Categoría
             <select name="category" id="categorySelect"></select>
+          </label>
+        </section>
+
+        <section class="form-section optional-expense-fields mobile-only">
+          <label>
+            Comercio
+            <input name="merchant" placeholder="Ej. Carrefour" />
+          </label>
+          <label>
+            Medio de pago
+            <input name="paymentMethod" placeholder="Ej. Mercado Pago" />
+          </label>
+          <label>
+            Notas
+            <textarea name="notes" rows="2" placeholder="Detalle opcional"></textarea>
           </label>
         </section>
 
@@ -313,6 +336,6 @@
       </article>
     </template>
 
-    <script src="./app.js?v=20260829-8" type="module"></script>
+    <script src="./app.js?v=20260902-1" type="module"></script>
   </body>
 </html>

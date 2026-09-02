@@ -711,7 +711,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-width: 0;
   min-height: 56px;
@@ -723,9 +724,17 @@ select {
   outline: none;
   font-size: 16px;
   font-weight: 700;
+  font-family: inherit;
 }
 
-input::placeholder {
+textarea {
+  min-height: 78px;
+  padding-block: 14px;
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
   color: #6f89a8;
 }
 
@@ -862,6 +871,25 @@ input::placeholder {
   font-size: 14px;
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.form-note.is-error {
+  color: var(--red);
+}
+
+.mobile-only {
+  display: none;
+}
+
+.scan-section {
+  display: none;
+  gap: 10px;
+  padding: 0;
+}
+
+.scan-button {
+  width: 100%;
+  color: var(--blue);
 }
 
 .participant-row input {
@@ -1225,6 +1253,10 @@ input::placeholder {
 
   .split-header select {
     width: 100%;
+  }
+
+  .mobile-only {
+    display: grid;
   }
 }
 
