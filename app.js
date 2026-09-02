@@ -899,7 +899,49 @@ async function prepareReceiptImage(file) {
   }
 
   context.putImageData(imageData, 0, 0);
-  return canvas;
+  return cropReceiptCanvas(canvas);
+}
+
+function cropReceiptCanvas(canvas) {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const bounds = findDarkPixelBounds(data, canvas.width, canvas.height);
+  if (!bounds) return canvas;
+
+  const margin = Math.round(Math.min(canvas.width, canvas.height) * 0.04);
+  const x = Math.max(0, bounds.left - margin);
+  const y = Math.max(0, bounds.top - margin);
+  const width = Math.min(canvas.width - x, bounds.right - bounds.left + margin * 2);
+  const height = Math.min(canvas.height - y, bounds.bottom - bounds.top + margin * 2);
+  const cropped = document.createElement("canvas");
+  cropped.width = width;
+  cropped.height = height;
+  cropped.getContext("2d").drawImage(canvas, x, y, width, height, 0, 0, width, height);
+  return cropped;
+}
+
+function findDarkPixelBounds(data, width, height) {
+  let left = width;
+  let right = 0;
+  let top = height;
+  let bottom = 0;
+  let darkPixels = 0;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      if (data[index] > 80) continue;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+      darkPixels += 1;
+    }
+  }
+
+  if (darkPixels < 200) return null;
+  return { left, right, top, bottom };
 }
 
 async function loadReceiptBitmap(file) {
@@ -991,17 +1033,21 @@ function parseReceiptText(text) {
     .map((line) => line.trim())
     .filter(Boolean);
   const compactText = lines.join(" ");
-  const merchant = detectReceiptMerchant(lines);
-  const amount = detectReceiptAmount(lines);
+  const receiptKind = detectReceiptKind(compactText);
+  const merchant = detectReceiptMerchant(lines, receiptKind);
+  const amount = detectReceiptAmount(lines, receiptKind);
   const date = detectReceiptDate(compactText);
   const category = detectReceiptCategory(compactText);
-  const title = merchant ? `Compra en ${merchant}` : "Gasto escaneado de ticket";
+  const paymentMethod = detectPaymentMethod(compactText, receiptKind);
+  const title = detectReceiptTitle(merchant, compactText, receiptKind);
 
   return {
     amount,
     category,
     date,
     merchant,
+    paymentMethod,
+    receiptKind,
     title,
     hasUsefulData: Boolean(amount || date || merchant || category),
   };
@@ -1013,6 +1059,7 @@ function applyReceiptDetection(detected, text) {
 
   if (detected.title) expenseForm.elements.title.value = detected.title;
   if (detected.merchant) expenseForm.elements.merchant.value = detected.merchant;
+  if (detected.paymentMethod) expenseForm.elements.paymentMethod.value = detected.paymentMethod;
   if (detected.amount) expenseForm.elements.amount.value = formatPlainAmount(detected.amount);
   if (detected.date) expenseForm.elements.date.value = detected.date;
   if (detected.category) categorySelect.value = detected.category;
@@ -1041,17 +1088,75 @@ function resetReceiptScan() {
   if (expenseForm.elements.ocrText) expenseForm.elements.ocrText.value = "";
 }
 
-function detectReceiptMerchant(lines) {
-  const ignored = /\b(cuit|iva|inicio|factura|ticket|consumidor|domicilio|ingresos|brutos|responsable|total)\b/i;
+function detectReceiptKind(text) {
+  const normalized = normalizeOcrText(text);
+  if (/\bgetnet\b/.test(normalized) || /\bcompra\s*qr\b/.test(normalized)) return "getnet";
+  return "generic";
+}
+
+function detectReceiptMerchant(lines, receiptKind) {
+  if (receiptKind === "getnet") return detectGetnetMerchant(lines) || "Getnet";
+
+  const ignored = /\b(cuit|iva|inicio|factura|ticket|consumidor|domicilio|ingresos|brutos|responsable|total|term|com|cupon)\b/i;
   const merchantLine = lines.find((line) => {
     const cleaned = line.replace(/[^a-zA-ZÀ-ÿ0-9 %&.-]/g, "").trim();
     return cleaned.length >= 3 && !ignored.test(cleaned) && !/\d{2}[/-]\d{2}[/-]\d{2,4}/.test(cleaned);
   });
 
+  return merchantLine ? cleanGetnetMerchantName(merchantLine) : "";
+}
+
+function detectGetnetMerchant(lines) {
+  const getnetIndex = lines.findIndex((line) => /\bgetnet\b/i.test(normalizeOcrText(line)));
+  if (getnetIndex < 0) return "";
+
+  const ignored = /\b(cuit|com|term|terminal|av|avenida|calle|capital|copia|comercio|cupon|compra|total)\b/i;
+  const dateLike = /\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/;
+  const candidates = lines.slice(getnetIndex + 1, getnetIndex + 5);
+  const merchantLine = candidates.find((line) => {
+    const cleaned = line.replace(/[^a-zA-ZÀ-ÿ0-9 %&.-]/g, "").trim();
+    if (cleaned.length < 3) return false;
+    if (dateLike.test(cleaned)) return false;
+    return !ignored.test(normalizeOcrText(cleaned));
+  });
+
   return merchantLine ? toTitleCase(merchantLine.replace(/\s+/g, " ").slice(0, 36)) : "";
 }
 
-function detectReceiptAmount(lines) {
+function detectReceiptTitle(merchant, text, receiptKind) {
+  const normalized = normalizeOcrText(text);
+  if (receiptKind === "getnet" && merchant && merchant !== "Getnet") return `Compra en ${merchant}`;
+  if (receiptKind === "getnet" && /\bcompra\s*qr\b/.test(normalized)) return "Compra QR Getnet";
+  if (receiptKind === "getnet") return "Compra Getnet";
+  return merchant ? `Compra en ${merchant}` : "Gasto escaneado de ticket";
+}
+
+function cleanGetnetMerchantName(value) {
+  return toTitleCase(
+    String(value)
+      .replace(/[^a-zA-ZÀ-ÿ0-9 %&.-]/g, "")
+      .replace(/\b(\d)\s+(\d)\b/g, "$1$2")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 36)
+  );
+}
+
+function detectPaymentMethod(text, receiptKind) {
+  const normalized = normalizeOcrText(text);
+  if (receiptKind === "getnet" && /\bcompra\s*qr\b/.test(normalized)) return "Getnet QR";
+  if (receiptKind === "getnet") return "Getnet";
+  if (/\bmercado\s*pago\b/.test(normalized)) return "Mercado Pago";
+  if (/\bdebito\b/.test(normalized)) return "Débito";
+  if (/\bcredito\b/.test(normalized)) return "Crédito";
+  if (/\befectivo\b/.test(normalized)) return "Efectivo";
+  return "";
+}
+
+function detectReceiptAmount(lines, receiptKind) {
+  const getnetAmount = receiptKind === "getnet" ? detectGetnetTotal(lines) : 0;
+  if (getnetAmount) return getnetAmount;
+
   const amountCandidates = [];
   const priorityWords = /\b(total|importe|monto|pagar|saldo|efectivo|debito|credito)\b/i;
   const ignoredWords = /\b(cuit|fecha|hora|ticket|factura|cae|iibb|ingresos|brutos|dni|telefono|tel)\b/i;
@@ -1082,6 +1187,14 @@ function detectReceiptAmount(lines) {
     .at(0)?.value ?? 0;
 }
 
+function detectGetnetTotal(lines) {
+  const totalIndex = lines.findIndex((line) => /\btotal\b/i.test(normalizeOcrText(line)));
+  const searchLines = totalIndex >= 0 ? lines.slice(totalIndex, totalIndex + 3) : lines;
+  const joined = searchLines.join(" ");
+  const values = extractMoneyValues(joined);
+  return values.at(-1) ?? 0;
+}
+
 function extractMoneyValues(text) {
   const matches = text.match(/(?:\$|ars)?\s*\d{1,3}(?:[.\s]\d{3})+(?:[,.]\d{2})?|(?:\$|ars)?\s*\d+[,.]\d{2}/gi) ?? [];
   return matches.map(parseReceiptAmountValue).filter((value) => value > 0);
@@ -1098,6 +1211,15 @@ function parseReceiptAmountValue(value) {
   const normalized = cleaned.replaceAll(thousandsSeparator, "").replace(decimalSeparator, ".");
   const parsed = Number.parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeOcrText(value) {
+  return slugify(
+    String(value)
+      .replace(/[|]/g, "I")
+      .replace(/[º°]/g, "o")
+      .replace(/\s+/g, " ")
+  ).replace(/-/g, " ");
 }
 
 function detectReceiptDate(text) {
