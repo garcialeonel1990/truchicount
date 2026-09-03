@@ -7,10 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260903-coinbase" />
+    <link rel="stylesheet" href="./styles.css?v=20260903-enviar-dinero" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -66,7 +66,7 @@
       <section class="screen screen-settings" id="settingsScreen" hidden>
         <header class="settings-header">
           <button class="round-button" id="settingsBackButton" type="button" aria-label="Volver">‹</button>
-          <h2>Settings</h2>
+          <h2>Ajustes</h2>
         </header>
 
         <section class="settings-section">
@@ -159,9 +159,9 @@
           <select name="currency" id="projectCurrencySelect"></select>
         </label>
         <div>
-          <h3 class="form-heading">Participants</h3>
+          <h3 class="form-heading">Participantes</h3>
           <div class="participant-box" id="projectParticipants"></div>
-          <button class="text-button" id="addProjectParticipant" type="button">Add Another Participant</button>
+          <button class="text-button" id="addProjectParticipant" type="button">Agregar participante</button>
         </div>
         <p class="form-error" id="projectError" hidden></p>
         <button class="primary-button" type="submit">Crear</button>
@@ -171,15 +171,15 @@
     <dialog class="modal" id="projectSettingsModal">
       <form method="dialog" class="modal-card" id="projectSettingsForm">
         <button class="close-button" value="cancel" type="button" data-close-project-settings>×</button>
-        <h2>Edit truchicount</h2>
+        <h2>Editar truchicount</h2>
         <label>
           Moneda
           <select name="currency" id="editProjectCurrencySelect"></select>
         </label>
         <div>
-          <h3 class="form-heading">Participants</h3>
+          <h3 class="form-heading">Participantes</h3>
           <div class="participant-box" id="editProjectParticipants"></div>
-          <button class="text-button" id="addEditProjectParticipant" type="button">Add Another Participant</button>
+          <button class="text-button" id="addEditProjectParticipant" type="button">Agregar participante</button>
         </div>
         <p class="form-error" id="projectSettingsError" hidden></p>
         <button class="secondary-button" id="copyInviteButton" type="button">Copiar link corto</button>
