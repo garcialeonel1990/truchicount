@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260829-5" />
+    <link rel="stylesheet" href="./styles.css?v=20260903-coinbase" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -36,7 +36,7 @@
             <nav class="top-nav" aria-label="Navegacion principal">
               <button class="nav-item is-selected" type="button" data-view="home">
                 <strong>tt</strong>
-                <span>truchicounts</span>
+                <span>Grupos</span>
               </button>
               <button class="nav-item" type="button" data-view="archived">
                 <strong>□</strong>
@@ -44,10 +44,10 @@
               </button>
               <button class="nav-item" type="button" data-view="settings">
                 <strong>⚙</strong>
-                <span>Settings</span>
+                <span>Ajustes</span>
               </button>
             </nav>
-            <button class="primary-button compact-action" id="newProjectButton" type="button">New truchicount</button>
+            <button class="primary-button compact-action" id="newProjectButton" type="button">Crear grupo</button>
             <button class="user-button" id="accountButton" type="button" title="Mi cuenta"></button>
           </div>
         </header>
@@ -104,24 +104,24 @@
             <span class="status-pill" id="detailStatus" hidden>Archivado</span>
           </div>
           <div class="detail-actions">
-            <button class="primary-button compact-action" id="addExpenseButton" type="button">Add Expense</button>
+            <button class="primary-button compact-action" id="addExpenseButton" type="button">Cargar gasto</button>
             <button class="round-button" id="menuButton" type="button" aria-label="Menu">···</button>
           </div>
           <div class="tabs" role="tablist" aria-label="Vistas del proyecto">
-            <button class="tab is-selected" data-tab="expenses" type="button">Expenses</button>
+            <button class="tab is-selected" data-tab="expenses" type="button">Gastos</button>
             <button class="tab" data-tab="balances" type="button">Balances</button>
-            <button class="tab" data-tab="photos" type="button">Photos</button>
+            <button class="tab" data-tab="photos" type="button">Fotos</button>
           </div>
         </header>
 
         <section class="tab-panel is-active" id="expensesPanel">
           <div class="totals-row">
             <div>
-              <span>My Expenses</span>
+              <span>Vos pagaste</span>
               <strong id="myExpenses">$ 0,00</strong>
             </div>
             <div>
-              <span>Total Expenses</span>
+              <span>Total del grupo</span>
               <strong id="totalExpenses">$ 0,00</strong>
             </div>
           </div>
