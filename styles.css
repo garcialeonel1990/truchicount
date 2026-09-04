@@ -1928,32 +1928,22 @@ textarea::placeholder {
   --shadow: none;
 }
 
-.login-screen,
-.home-header {
+.login-screen {
   background: #60cdff;
 }
 
-.detail-header,
-.settlement-card {
+.primary-button,
+.compact-action {
   background: #002991;
   color: #ffffff;
 }
 
-.detail-header h2,
-.detail-header .round-button,
-.settlement-card strong,
-.settlement-card small {
+.nav-item.is-selected,
+.tab.is-selected {
+  background: #002991;
   color: #ffffff;
 }
 
-.primary-button,
-.compact-action,
-.nav-item.is-selected {
-  background: #050505;
-  color: #ffffff;
-}
-
-.tab.is-selected,
 .me-badge,
 .status-pill,
 .check {
@@ -1961,8 +1951,78 @@ textarea::placeholder {
   color: #050505;
 }
 
+.user-button {
+  background: #002991;
+  color: #ffffff;
+}
+
+.chevron,
+.text-button,
+.sort-button {
+  color: #002991;
+}
+
+.settlement-card {
+  background: #002991;
+  color: #ffffff;
+}
+
+.settlement-card strong,
+.settlement-card small {
+  color: #ffffff;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
   border-color: #002991;
+}
+
+@media (min-width: 900px) {
+  .home-header {
+    align-items: center;
+    padding: 0;
+  }
+
+  .home-header h1 {
+    max-width: 420px;
+    overflow: hidden;
+    font-size: clamp(38px, 4vw, 54px);
+    line-height: 0.92;
+  }
+
+  .header-actions {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .top-nav {
+    width: min(100%, 360px);
+  }
+
+  .nav-item {
+    min-height: 40px;
+    padding: 0 14px;
+  }
+
+  .detail-header {
+    padding: 0 0 18px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+  }
+
+  .detail-header h2,
+  .detail-header .round-button {
+    color: var(--text);
+  }
+
+  .detail-actions {
+    align-items: center;
+  }
+
+  .tabs {
+    width: min(100%, 440px);
+    margin-top: 10px;
+  }
 }
