@@ -1979,8 +1979,14 @@ textarea:focus {
 }
 
 @media (min-width: 900px) {
+  .app-shell {
+    width: min(100%, 1320px);
+  }
+
   .home-header {
     align-items: center;
+    width: min(100%, 1180px);
+    margin: 0 auto 44px;
     padding: 0;
   }
 
@@ -1994,18 +2000,28 @@ textarea:focus {
   .header-actions {
     flex: 1;
     min-width: 0;
+    justify-content: flex-end;
   }
 
   .top-nav {
-    width: min(100%, 360px);
+    width: 366px;
   }
 
   .nav-item {
+    grid-template-columns: 1fr;
+    justify-content: center;
     min-height: 40px;
     padding: 0 14px;
   }
 
+  .nav-item span,
+  .tab {
+    text-align: center;
+  }
+
   .detail-header {
+    width: min(100%, 1180px);
+    margin: 0 auto 28px;
     padding: 0 0 18px;
     border: 0;
     background: transparent;
@@ -2024,5 +2040,28 @@ textarea:focus {
   .tabs {
     width: min(100%, 440px);
     margin-top: 10px;
+  }
+
+  .project-list {
+    width: min(100%, 1180px);
+    margin: 0 auto;
+  }
+
+  .tab-panel.is-active {
+    width: min(100%, 820px);
+    max-width: none;
+    margin: 0 auto;
+  }
+
+  #balancesPanel.tab-panel.is-active {
+    width: min(100%, 900px);
+  }
+
+  .totals-row {
+    max-width: none;
+  }
+
+  .empty-state {
+    min-height: 220px;
   }
 }
