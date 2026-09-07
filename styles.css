@@ -268,6 +268,31 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   gap: 12px;
 }
 
+.home-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 46px;
+  margin: -8px 0 18px;
+  padding: 4px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  background: var(--gray-100);
+}
+
+.home-tab {
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--gray-600);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.home-tab.is-selected {
+  background: var(--white);
+  color: var(--teal-700);
+  box-shadow: var(--shadow-sm);
+}
+
 .project-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -304,6 +329,20 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   font-weight: 500;
 }
 
+.archive-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
 .chevron {
   color: var(--teal-700);
   font-size: 30px;
@@ -314,6 +353,12 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .back-button {
@@ -345,6 +390,20 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   color: var(--color-text-muted);
   font-size: 14px;
   line-height: 1.45;
+}
+
+.archive-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 12px;
+}
+
+.archive-summary p {
+  margin: 0;
+  color: var(--gray-500);
+  font-size: 13px;
 }
 
 .tabs {
@@ -582,6 +641,14 @@ input:disabled {
 
 .settled-state span { font-size: 14px; }
 
+.archive-ready {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--teal-700);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .balance-list {
   overflow: hidden;
   border-radius: var(--radius-lg);
@@ -765,6 +832,9 @@ input:disabled {
 
 .modal-card h2 { margin: 0 42px 4px 0; font-size: 23px; letter-spacing: -0.045em; }
 .modal-card .primary-button { width: 100%; }
+
+.action-modal .secondary-button { width: 100%; }
+.action-modal .secondary-button:disabled { cursor: not-allowed; border-color: var(--gray-200); color: var(--gray-400); }
 
 .close-button {
   position: absolute;

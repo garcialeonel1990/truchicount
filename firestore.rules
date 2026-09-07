@@ -30,6 +30,24 @@ service cloud.firestore {
         && getAfter(membershipPath(countId, request.auth.uid)).data.status == "active";
     }
 
+    function isActiveCount(countId) {
+      return exists(/databases/$(database)/documents/counts/$(countId))
+        && get(/databases/$(database)/documents/counts/$(countId)).data.status == "active";
+    }
+
+    function isActiveCountAfter(countId) {
+      return existsAfter(/databases/$(database)/documents/counts/$(countId))
+        && getAfter(/databases/$(database)/documents/counts/$(countId)).data.status == "active";
+    }
+
+    function isActiveCountMember(countId) {
+      return isCountMember(countId) && isActiveCount(countId);
+    }
+
+    function isActiveCountMemberAfter(countId) {
+      return isCountMemberAfter(countId) && isActiveCountAfter(countId);
+    }
+
     function isOwner(countId) {
       return isCountMember(countId)
         && get(/databases/$(database)/documents/counts/$(countId)).data.ownerUid == request.auth.uid;
@@ -39,7 +57,8 @@ service cloud.firestore {
       return token is string
         && exists(/databases/$(database)/documents/invites/$(token))
         && get(/databases/$(database)/documents/invites/$(token)).data.countId == countId
-        && get(/databases/$(database)/documents/invites/$(token)).data.status == "active";
+        && get(/databases/$(database)/documents/invites/$(token)).data.status == "active"
+        && isActiveCount(countId);
     }
 
     match /users/{uid} {
@@ -52,16 +71,28 @@ service cloud.firestore {
       allow create: if isSuperAdmin()
         || (signedIn() && request.resource.data.ownerUid == request.auth.uid);
       allow read: if isSuperAdmin() || isCountMember(countId);
-      allow update: if isSuperAdmin() || isOwner(countId);
+      // Cualquier integrante puede alternar el archivado. Fuera de esa
+      // transición el Count no admite cambios desde el cliente.
+      allow update: if isSuperAdmin() || (isCountMember(countId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "status", "archiveBalanceSnapshot", "firstArchivedAt", "firstArchivedBy",
+          "lastArchivedAt", "lastArchivedBy", "lastArchivedByNameSnapshot",
+          "lastUnarchivedAt", "lastUnarchivedBy", "lastUnarchivedByNameSnapshot",
+          "updatedAt", "updatedBy"
+        ])
+        && ((resource.data.status == "active" && request.resource.data.status == "archived")
+          || (resource.data.status == "archived" && request.resource.data.status == "active")));
       allow delete: if isSuperAdmin();
 
       match /expenses/{expenseId} {
-        allow read, create, update: if isSuperAdmin() || isCountMember(countId);
+        allow read: if isSuperAdmin() || isCountMember(countId);
+        allow create, update: if isSuperAdmin() || isActiveCountMember(countId);
         allow delete: if isSuperAdmin();
       }
 
       match /settlements/{settlementId} {
-        allow read, create, update: if isSuperAdmin() || isCountMember(countId);
+        allow read: if isSuperAdmin() || isCountMember(countId);
+        allow create, update: if isSuperAdmin() || isActiveCountMember(countId);
         allow delete: if isSuperAdmin();
       }
     }
@@ -83,9 +114,10 @@ service cloud.firestore {
 
     match /invites/{token} {
       allow read: if isSuperAdmin() || signedIn();
-      allow create: if isSuperAdmin() || (signedIn() && isCountMember(request.resource.data.countId)
+      allow create: if isSuperAdmin() || (signedIn() && isActiveCountMember(request.resource.data.countId)
         && request.resource.data.createdBy == request.auth.uid);
       allow update: if isSuperAdmin() || (signedIn()
+        && isActiveCount(resource.data.countId)
         && resource.data.status == "active"
         && request.resource.data.countId == resource.data.countId
         && request.resource.data.status == resource.data.status
@@ -115,8 +147,14 @@ service cloud.firestore {
         && request.resource.data.actorUid == request.auth.uid
         && (
           request.resource.data.entityType == "category"
-          || isCountMember(request.resource.data.countId)
-          || isCountMemberAfter(request.resource.data.countId)
+          || isActiveCountMember(request.resource.data.countId)
+          || (isActiveCountMemberAfter(request.resource.data.countId)
+            && request.resource.data.entityType == "count"
+            && request.resource.data.action == "create")
+          || (isCountMember(request.resource.data.countId)
+            && request.resource.data.entityType == "count"
+            && request.resource.data.action == "unarchiveCount"
+            && isActiveCountAfter(request.resource.data.countId))
         ));
       allow update, delete: if isSuperAdmin();
     }

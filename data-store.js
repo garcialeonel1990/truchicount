@@ -15,7 +15,8 @@ import {
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 import { db } from "./firebase.js";
-import { DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
+import { calculateNetBalances } from "./balances.js";
+import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
 
 const toItem = (snapshot) => ({ id: snapshot.id, ...snapshot.data() });
 const auditRef = () => doc(collection(db, "auditLogs"));
@@ -51,9 +52,20 @@ export function watchCounts(uid, onChange, onError) {
     try {
       const memberships = snapshot.docs.map(toItem);
       const countDocs = await Promise.all(memberships.map((membership) => getDoc(doc(db, "counts", membership.countId))));
-      onChange(countDocs.filter((item) => item.exists() && item.data().status === "active").map(toItem));
+      onChange(countDocs
+        .filter((item) => item.exists())
+        .map((item) => ({ ...toItem(item), status: item.data().status || "active" }))
+        .sort((a, b) => {
+          if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+          if (a.status === "archived") return (dateValue(b.lastArchivedAt) || 0) - (dateValue(a.lastArchivedAt) || 0);
+          return (dateValue(b.updatedAt) || 0) - (dateValue(a.updatedAt) || 0);
+        }));
     } catch (error) { onError?.(error); }
   }, onError);
+}
+
+function dateValue(value) {
+  return value?.toMillis ? value.toMillis() : value ? new Date(value).getTime() : 0;
 }
 
 export async function createCount({ name, user, defaultCurrency = DEFAULT_CURRENCY }) {
@@ -225,7 +237,117 @@ export async function createSettlement({ countId, suggestion, members, actor }) 
   await batch.commit();
 }
 
+function archiveSnapshot() {
+  return Object.fromEntries(Object.keys(CURRENCIES).map((currency) => [currency, 0]));
+}
+
+function pendingBalanceCurrencies(balances) {
+  const pending = new Set();
+  Object.values(balances).forEach((byCurrency) => {
+    Object.entries(byCurrency).forEach(([currency, amount]) => {
+      if (amount !== 0) pending.add(currency);
+    });
+  });
+  return [...pending].sort();
+}
+
+async function getCountBalanceInTransaction(transaction, countId) {
+  const membersQuery = query(collection(db, "memberships"), where("countId", "==", countId), where("status", "==", "active"));
+  const expensesQuery = collection(db, "counts", countId, "expenses");
+  const settlementsQuery = collection(db, "counts", countId, "settlements");
+  const [members, expenses, settlements] = await Promise.all([
+    transaction.get(membersQuery),
+    transaction.get(expensesQuery),
+    transaction.get(settlementsQuery),
+  ]);
+  return calculateNetBalances(
+    members.docs.map(toItem),
+    expenses.docs.map(toItem),
+    settlements.docs.map(toItem)
+  );
+}
+
+export async function archiveCount({ countId, actor }) {
+  const countRef = doc(db, "counts", countId);
+  const membershipRef = doc(db, "memberships", `${countId}_${actor.uid}`);
+  return runTransaction(db, async (transaction) => {
+    const [countSnapshot, membershipSnapshot] = await Promise.all([
+      transaction.get(countRef),
+      transaction.get(membershipRef),
+    ]);
+    if (!countSnapshot.exists()) throw new Error("Este Count ya no existe.");
+    if (!membershipSnapshot.exists() || membershipSnapshot.data().status !== "active") throw new Error("No tenés permisos para archivar este Count.");
+    const count = toItem(countSnapshot);
+    if (count.status === "archived") throw new Error("Este Count ya está archivado.");
+
+    const balances = await getCountBalanceInTransaction(transaction, countId);
+    const pendingCurrencies = pendingBalanceCurrencies(balances);
+    if (pendingCurrencies.length) {
+      const suffix = pendingCurrencies.length === 1 ? " en " + pendingCurrencies[0] : " en " + pendingCurrencies.join(", ");
+      throw new Error("No se pudo archivar el Count porque todavía hay saldo pendiente" + suffix + ".");
+    }
+
+    const actorName = actor.displayName || actor.email || "Usuario";
+    const changes = {
+      status: "archived",
+      archiveBalanceSnapshot: archiveSnapshot(),
+      lastArchivedAt: serverTimestamp(),
+      lastArchivedBy: actor.uid,
+      lastArchivedByNameSnapshot: actorName,
+      updatedAt: serverTimestamp(),
+      updatedBy: actor.uid,
+    };
+    if (!count.firstArchivedAt) {
+      changes.firstArchivedAt = serverTimestamp();
+      changes.firstArchivedBy = actor.uid;
+    }
+    transaction.update(countRef, changes);
+    transaction.set(auditRef(), {
+      entityType: "count", entityId: countId, countId, action: "archiveCount",
+      actorUid: actor.uid, actorNameSnapshot: actorName,
+      before: { status: count.status || "active" },
+      after: { status: "archived" },
+      createdAt: serverTimestamp(),
+    });
+    return { balances, pendingCurrencies: [] };
+  });
+}
+
+export async function unarchiveCount({ countId, actor }) {
+  const countRef = doc(db, "counts", countId);
+  const membershipRef = doc(db, "memberships", `${countId}_${actor.uid}`);
+  return runTransaction(db, async (transaction) => {
+    const [countSnapshot, membershipSnapshot] = await Promise.all([
+      transaction.get(countRef),
+      transaction.get(membershipRef),
+    ]);
+    if (!countSnapshot.exists()) throw new Error("Este Count ya no existe.");
+    if (!membershipSnapshot.exists() || membershipSnapshot.data().status !== "active") throw new Error("No tenés permisos para desarchivar este Count.");
+    const count = toItem(countSnapshot);
+    if (count.status !== "archived") throw new Error("Este Count ya está activo.");
+
+    const actorName = actor.displayName || actor.email || "Usuario";
+    transaction.update(countRef, {
+      status: "active",
+      lastUnarchivedAt: serverTimestamp(),
+      lastUnarchivedBy: actor.uid,
+      lastUnarchivedByNameSnapshot: actorName,
+      updatedAt: serverTimestamp(),
+      updatedBy: actor.uid,
+    });
+    transaction.set(auditRef(), {
+      entityType: "count", entityId: countId, countId, action: "unarchiveCount",
+      actorUid: actor.uid, actorNameSnapshot: actorName,
+      before: { status: "archived" },
+      after: { status: "active" },
+      createdAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function createInvite(countId, actor) {
+  const count = await getDoc(doc(db, "counts", countId));
+  if (!count.exists() || count.data().status === "archived") throw new Error("Este Count está archivado y no acepta nuevos miembros.");
   const ref = doc(collection(db, "invites"));
   await setDoc(ref, { countId, status: "active", createdBy: actor.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null });
   return ref.id;
@@ -237,6 +359,8 @@ export async function joinInvite(token, user) {
     const invite = await transaction.get(inviteRef);
     if (!invite.exists() || invite.data().status !== "active") throw new Error("Esta invitación no existe o ya no está activa.");
     const countId = invite.data().countId;
+    const count = await transaction.get(doc(db, "counts", countId));
+    if (!count.exists() || count.data().status === "archived") throw new Error("Este Count está archivado y no acepta nuevos miembros.");
     const membershipRef = doc(db, "memberships", `${countId}_${user.uid}`);
     const membership = await transaction.get(membershipRef);
     if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, role: "member", status: "active", displayNameSnapshot: user.displayName || user.email || "Usuario", emailSnapshot: user.email || "", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });

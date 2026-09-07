@@ -1,13 +1,13 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, updateDisplayName, watchAuth } from "./firebase.js";
-import { createCategory, createCount, createInvite, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, saveExpense, softDeleteCategory, softDeleteExpense, updateCategory, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { archiveCount, createCategory, createCount, createInvite, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, toastTimer: null };
+const state = { user: null, profile: null, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
 const unsubscribers = { app: [], detail: [] };
 const filters = { search: "", category: "", payer: "", participant: "", from: "", to: "" };
-const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "accountModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -26,7 +26,9 @@ function categoryDisplay(categoryId, fallbackName = "") {
 }
 function categoryEmoji(category) { return category?.emoji || icon(category?.name); }
 function balances() { return calculateNetBalances(state.members, state.expenses, state.settlements); }
-function setBusy(button, busy, label) { button.disabled = busy; button.textContent = busy ? "Guardando…" : label; }
+function isReadOnly() { return state.count?.status === "archived"; }
+function pendingCurrencies(balance = balances()) { return [...new Set(Object.values(balance).flatMap((byCurrency) => Object.entries(byCurrency).filter(([, amount]) => amount !== 0).map(([currency]) => currency)))].sort(); }
+function setBusy(button, busy, label, busyLabel = "Guardando…") { button.disabled = busy; button.textContent = busy ? busyLabel : label; }
 function error(el, exception, fallback) { console.error(exception); el.textContent = exception?.message || fallback; el.hidden = false; }
 function icon(category) { const name = String(category).toLocaleLowerCase("es"); if (name.includes("super") || name.includes("comida")) return "🛒"; if (name.includes("salida")) return "🍔"; if (name.includes("trans")) return "🚕"; if (name.includes("serv")) return "💡"; if (name.includes("verd")) return "🥬"; if (name.includes("apo") || name.includes("masc")) return "🐶"; return "🧾"; }
 function showToast(message) { const toast = $("#toast"); clearTimeout(state.toastTimer); toast.textContent = message; toast.hidden = false; state.toastTimer = setTimeout(() => { toast.hidden = true; }, 2800); }
@@ -34,7 +36,7 @@ function showToast(message) { const toast = $("#toast"); clearTimeout(state.toas
 completeRedirectSignIn().catch((exception) => error($("#authError"), exception, "No se pudo completar el inicio de sesión."));
 watchAuth(async (user) => {
   stop("app"); stop("detail");
-  state.user = user; state.profile = null; state.counts = []; state.count = null;
+  state.user = user; state.profile = null; state.counts = []; state.count = null; state.homeTab = "active";
   $("#loginScreen").hidden = Boolean(user); $("#appShell").hidden = !user;
   if (!user) return;
   try {
@@ -84,16 +86,21 @@ function showScreen(name) {
 function renderHome() {
   if (!state.user) return;
   renderHeader();
+  document.querySelectorAll("[data-count-tab]").forEach((button) => button.classList.toggle("is-selected", button.dataset.countTab === state.homeTab));
+  $("#newCountButton").hidden = state.homeTab === "archived";
   const list = $("#countList"); list.replaceChildren();
-  if (!state.counts.length) {
-    list.innerHTML = '<section class="empty-state"><strong>Todavía no tenés ningún Count.</strong><span>Creá uno para empezar a dividir gastos.</span><button class="primary-button" id="emptyCreateButton" type="button">Crear Count</button></section>';
+  const counts = state.counts.filter((count) => (count.status || "active") === state.homeTab);
+  if (!counts.length) {
+    list.innerHTML = state.homeTab === "archived"
+      ? '<section class="empty-state"><strong>No tenés Counts archivados todavía.</strong><span>Cuando termines de usar un Count y su balance esté en cero, vas a poder archivarlo.</span></section>'
+      : '<section class="empty-state"><strong>Todavía no tenés ningún Count.</strong><span>Creá uno para empezar a dividir gastos.</span><button class="primary-button" id="emptyCreateButton" type="button">Crear Count</button></section>';
     on($("#emptyCreateButton"), "click", openCountModal);
     return;
   }
-  state.counts.forEach((count) => {
+  counts.forEach((count) => {
     const card = document.createElement("button");
     card.type = "button"; card.className = "project-card";
-    card.innerHTML = '<span><strong>' + esc(count.name) + '</strong><small>Count compartido</small></span><span class="chevron">›</span>';
+    card.innerHTML = '<span><strong>' + esc(count.name) + '</strong><small>' + (count.status === "archived" ? '<span class="archive-badge">Archivado</span>' : "Count compartido") + '</small></span><span class="chevron">›</span>';
     on(card, "click", () => openCount(count.id)); list.append(card);
   });
 }
@@ -113,6 +120,11 @@ function renderDetail() {
   if (!state.count) return;
   $("#countTitle").textContent = state.count.name;
   $("#memberSummary").textContent = state.members.length ? state.members.length + (state.members.length === 1 ? " integrante · " : " integrantes · ") + state.members.map((member) => member.displayNameSnapshot).join(", ") : "Cargando integrantes…";
+  const archived = isReadOnly();
+  $("#shareButton").hidden = archived;
+  $("#addExpenseButton").hidden = archived;
+  $("#archiveSummary").hidden = !archived;
+  $("#archiveMetadata").textContent = archived ? "Archivado el " + prettyDate(state.count.lastArchivedAt) + " por " + (state.count.lastArchivedByNameSnapshot || "un integrante") : "";
   fillFilters(); renderExpenses(); renderBalances();
 }
 
@@ -149,7 +161,10 @@ function renderBalances() {
   const suggestions = simplifyDebts(computed);
   const actions = $("#balanceActions"); actions.replaceChildren();
   const mine = actionsForUser(suggestions, state.user.uid);
-  if (!mine.length) actions.innerHTML = '<section class="settled-state"><strong>Todo saldado 🎉</strong><span>Nadie le debe nada a nadie.</span></section>';
+  if (!mine.length) {
+    actions.innerHTML = '<section class="settled-state"><strong>Todo saldado 🎉</strong><span>Nadie le debe nada a nadie.</span></section>';
+    if (!isReadOnly()) actions.insertAdjacentHTML("beforeend", '<p class="archive-ready">Este Count ya se puede archivar.</p>');
+  }
   else {
     const title = document.createElement("h2"); title.className = "section-title"; title.textContent = "Qué tenés que hacer"; actions.append(title);
     mine.forEach((suggestion) => {
@@ -157,7 +172,8 @@ function renderBalances() {
       const other = nameOf(pays ? suggestion.toUid : suggestion.fromUid);
       const card = document.createElement("button"); card.type = "button"; card.className = "settlement-card";
       card.innerHTML = '<span class="settlement-icon">' + (pays ? "↗" : "↙") + '</span><span><strong>' + (pays ? "Pagale a " : "Reclamale a ") + esc(other) + '</strong><small>' + formatMoney(suggestion.amountMinor, suggestion.currency) + '</small></span><span class="chevron">›</span>';
-      on(card, "click", () => openSettlementModal(suggestion)); actions.append(card);
+      if (!isReadOnly()) on(card, "click", () => openSettlementModal(suggestion)); else card.disabled = true;
+      actions.append(card);
     });
   }
   const list = $("#balanceList"); list.replaceChildren();
@@ -256,6 +272,7 @@ function openCountModal() {
   dialogs.countModal.showModal();
 }
 function openExpenseModal(expense) {
+  if (isReadOnly()) return;
   if (!state.members.length || !activeCategories().length) return;
   state.editing = expense || null; $("#expenseForm").reset(); $("#expenseError").hidden = true;
   $("#expenseModalTitle").textContent = expense ? "Editar gasto" : "Nuevo gasto";
@@ -283,25 +300,58 @@ function openExpenseDetail(expense) {
   const participants = expense.participantUids.map(nameOf).map(esc).join(", ");
   const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
   $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + category.emoji + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Pagó</dt><dd>' + esc(expense.payerNameSnapshot) + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
+  $("#editExpenseButton").hidden = isReadOnly();
+  $("#deleteExpenseButton").hidden = isReadOnly();
   dialogs.expenseDetailModal.showModal();
 }
 function openSettlementModal(suggestion) {
+  if (isReadOnly()) return;
   state.selectedSettlement = suggestion;
   $("#settlementContent").innerHTML = '<p class="eyebrow">Liquidación</p><h2>' + esc(nameOf(suggestion.fromUid)) + " le paga a " + esc(nameOf(suggestion.toUid)) + '</h2><p class="expense-detail-amount">' + formatMoney(suggestion.amountMinor, suggestion.currency) + '</p><p class="section-copy">Esto registra un pago real y actualiza los balances.</p>';
   $("#confirmSettlementButton").textContent = state.user.uid === suggestion.fromUid ? "Marcar como pagado" : "Marcar como saldado"; dialogs.settlementModal.showModal();
 }
 async function openInviteModal() {
+  if (isReadOnly()) { showToast("Este Count está archivado y no acepta nuevos miembros."); return; }
   $("#inviteLink").value = ""; $("#inviteStatus").hidden = true; dialogs.inviteModal.showModal();
   try { const token = await createInvite(state.count.id, state.user); const url = new URL(location.href); url.pathname = "/j/" + token; url.search = ""; url.hash = ""; $("#inviteLink").value = url.toString(); } catch (exception) { error($("#inviteStatus"), exception, "No pudimos crear el link."); }
 }
 
+function openCountActions() {
+  if (!state.count) return;
+  const archived = isReadOnly();
+  const pending = pendingCurrencies();
+  $("#archiveCountAction").hidden = archived;
+  $("#unarchiveCountAction").hidden = !archived;
+  $("#archiveCountAction").disabled = !archived && pending.length > 0;
+  $("#archiveAvailability").hidden = archived || pending.length === 0;
+  $("#archiveAvailability").textContent = pending.length === 1
+    ? "No se puede archivar porque todavía hay saldo pendiente en " + pending[0] + "."
+    : "No se puede archivar porque todavía hay saldos pendientes.";
+  dialogs.countActionsModal.showModal();
+}
+
+function openArchiveConfirmation() {
+  $("#archiveConfirmTitle").textContent = "¿Seguro que querés archivar “" + (state.count?.name || "este Count") + "”?";
+  $("#archiveConfirmError").hidden = true;
+  dialogs.countActionsModal.close();
+  dialogs.archiveConfirmModal.showModal();
+}
+
+function openUnarchiveConfirmation() {
+  $("#unarchiveConfirmTitle").textContent = "¿Desarchivar “" + (state.count?.name || "este Count") + "” y volver a habilitar modificaciones?";
+  $("#unarchiveConfirmError").hidden = true;
+  dialogs.countActionsModal.close();
+  dialogs.unarchiveConfirmModal.showModal();
+}
+
 on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true; const button = $("#googleLoginButton"); setBusy(button, true, "Continuar con Google"); try { await signInWithGoogle(); } catch (exception) { error($("#authError"), exception, "No se pudo iniciar sesión."); setBusy(button, false, "Continuar con Google"); } });
-on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal);
+on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions);
 on($("#newCategoryButton"), "click", () => openCategoryModal());
 on($("#emojiPickerButton"), "click", openEmojiPicker);
 on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
+document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
 on($("#filterToggle"), "click", () => { $("#filterPanel").hidden = !$("#filterPanel").hidden; });
 const filterMap = { filterSearch: "search", filterCategory: "category", filterPayer: "payer", filterParticipant: "participant", filterFrom: "from", filterTo: "to" };
 Object.entries(filterMap).forEach(([id, key]) => on($("#" + id), "input", (event) => { filters[key] = event.target.value; renderExpenses(); }));
@@ -347,6 +397,36 @@ on($("#deleteExpenseButton"), "click", async () => {
 });
 on($("#confirmSettlementButton"), "click", async () => {
   const button = $("#confirmSettlementButton"); setBusy(button, true, "Marcar como pagado"); try { await createSettlement({ countId: state.count.id, suggestion: state.selectedSettlement, members: state.members, actor: state.user }); dialogs.settlementModal.close(); } catch (exception) { alert("No pudimos registrar el pago."); console.error(exception); } finally { setBusy(button, false, "Marcar como pagado"); }
+});
+on($("#archiveCountAction"), "click", () => { if (!$("#archiveCountAction").disabled) openArchiveConfirmation(); });
+on($("#unarchiveCountAction"), "click", openUnarchiveConfirmation);
+on($("#confirmArchiveButton"), "click", async () => {
+  const button = $("#confirmArchiveButton");
+  $("#archiveConfirmError").hidden = true;
+  setBusy(button, true, "Archivar", "Archivando…");
+  try {
+    await archiveCount({ countId: state.count.id, actor: state.user });
+    dialogs.archiveConfirmModal.close();
+    state.homeTab = "archived";
+    showScreen("home");
+    showToast("✓ Count archivado");
+  } catch (exception) {
+    error($("#archiveConfirmError"), exception, "No pudimos archivar el Count. Intentá nuevamente.");
+  } finally { setBusy(button, false, "Archivar"); }
+});
+on($("#confirmUnarchiveButton"), "click", async () => {
+  const button = $("#confirmUnarchiveButton");
+  $("#unarchiveConfirmError").hidden = true;
+  setBusy(button, true, "Desarchivar", "Desarchivando…");
+  try {
+    await unarchiveCount({ countId: state.count.id, actor: state.user });
+    dialogs.unarchiveConfirmModal.close();
+    state.homeTab = "active";
+    showScreen("home");
+    showToast("✓ Count desarchivado");
+  } catch (exception) {
+    error($("#unarchiveConfirmError"), exception, "No pudimos desarchivar el Count. Intentá nuevamente.");
+  } finally { setBusy(button, false, "Desarchivar"); }
 });
 on($("#copyInviteButton"), "click", async () => { try { await navigator.clipboard.writeText($("#inviteLink").value); $("#inviteStatus").textContent = "Link copiado."; $("#inviteStatus").hidden = false; } catch { $("#inviteStatus").textContent = "Copialo manualmente desde el campo."; $("#inviteStatus").hidden = false; } });
 on($("#shareInviteButton"), "click", async () => { const url = $("#inviteLink").value; if (navigator.share) { try { await navigator.share({ title: state.count?.name || "TruchiCount", text: "Sumate a mi Count en TruchiCount", url }); } catch {} } else { await navigator.clipboard.writeText(url); $("#inviteStatus").textContent = "Link copiado."; $("#inviteStatus").hidden = false; } });
