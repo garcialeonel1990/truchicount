@@ -690,7 +690,7 @@ input:disabled {
 
 .settings-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   min-height: 60px;
@@ -699,7 +699,15 @@ input:disabled {
 }
 
 .settings-row:last-child { border-bottom: 0; }
-.settings-row > span:first-child { color: var(--teal-700); font-size: 19px; }
+.settings-row > span:first-child {
+  overflow: hidden;
+  color: var(--teal-700);
+  font-size: 19px;
+  font-weight: 800;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .settings-row > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
 .settings-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
 .settings-row small { color: var(--gray-500); font-size: 12px; }
