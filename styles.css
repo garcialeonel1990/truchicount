@@ -724,11 +724,9 @@ input:disabled {
   place-content: center;
   gap: 8px;
   padding: 22px;
-  border: 1px dashed var(--teal-200);
+  border: 1px solid var(--gray-200);
   border-radius: var(--radius-lg);
-  background:
-    linear-gradient(135deg, transparent 48%, rgba(217, 70, 239, 0.1) 49% 51%, transparent 52%),
-    var(--white);
+  background: var(--white);
   color: var(--gray-500);
   text-align: center;
 }
