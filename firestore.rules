@@ -6,15 +6,109 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    match /projects/{projectId}/joinRequests/{requestId} {
-      allow create: if signedIn() && request.auth.uid == requestId;
-      allow read: if signedIn();
-      allow update: if signedIn();
+    function membershipPath(countId, uid) {
+      return /databases/$(database)/documents/memberships/$(countId + "_" + uid);
     }
 
-    match /invites/{inviteCode} {
+    function isCountMember(countId) {
+      return signedIn()
+        && exists(membershipPath(countId, request.auth.uid))
+        && get(membershipPath(countId, request.auth.uid)).data.status == "active";
+    }
+
+    function isCountMemberAfter(countId) {
+      return signedIn()
+        && existsAfter(membershipPath(countId, request.auth.uid))
+        && getAfter(membershipPath(countId, request.auth.uid)).data.status == "active";
+    }
+
+    function isOwner(countId) {
+      return isCountMember(countId)
+        && get(/databases/$(database)/documents/counts/$(countId)).data.ownerUid == request.auth.uid;
+    }
+
+    function hasActiveInvite(token, countId) {
+      return token is string
+        && exists(/databases/$(database)/documents/invites/$(token))
+        && get(/databases/$(database)/documents/invites/$(token)).data.countId == countId
+        && get(/databases/$(database)/documents/invites/$(token)).data.status == "active";
+    }
+
+    match /users/{uid} {
+      allow create, read, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /counts/{countId} {
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow read: if isCountMember(countId);
+      allow update: if isOwner(countId);
+      allow delete: if false;
+
+      match /expenses/{expenseId} {
+        allow read, create, update: if isCountMember(countId);
+        allow delete: if false;
+      }
+
+      match /settlements/{settlementId} {
+        allow read, create, update: if isCountMember(countId);
+        allow delete: if false;
+      }
+    }
+
+    match /memberships/{membershipId} {
+      allow read: if signedIn() && (
+        resource.data.uid == request.auth.uid || isCountMember(resource.data.countId)
+      );
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == "active"
+        && (
+          (getAfter(/databases/$(database)/documents/counts/$(request.resource.data.countId)).data.ownerUid == request.auth.uid
+            && request.resource.data.role == "owner")
+          || hasActiveInvite(request.resource.data.inviteToken, request.resource.data.countId)
+        );
+      allow update, delete: if false;
+    }
+
+    match /invites/{token} {
+      allow read: if signedIn();
+      allow create: if signedIn() && isCountMember(request.resource.data.countId)
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.status == "active"
+        && request.resource.data.countId == resource.data.countId
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["usageCount", "lastUsedAt"]);
+      allow delete: if false;
+    }
+
+    match /categories/{categoryId} {
       allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if signedIn();
+      allow delete: if false;
+    }
+
+    match /merchants/{merchantId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if signedIn();
+      allow delete: if false;
+    }
+
+    match /auditLogs/{auditId} {
+      allow read: if signedIn() && isCountMember(resource.data.countId);
+      allow create: if signedIn()
+        && request.resource.data.actorUid == request.auth.uid
+        && (
+          request.resource.data.entityType == "category"
+          || isCountMember(request.resource.data.countId)
+          || isCountMemberAfter(request.resource.data.countId)
+        );
+      allow update, delete: if false;
     }
   }
 }

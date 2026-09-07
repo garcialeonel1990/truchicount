@@ -3,339 +3,61 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Truchicount</title>
+    <meta name="theme-color" content="#0052ff" />
+    <title>TruchiCount</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="./styles.css?v=20260903-palette" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css?v=v1-reversion" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
       <div class="login-card">
-        <p class="login-kicker">truchicount</p>
-        <h1>Dividí gastos sin hacer cuentas raras.</h1>
-        <p>Entrá con Google para preparar la app para datos reales en Firebase.</p>
-        <button class="primary-button google-button" id="googleLoginButton" type="button">
-          <span>G</span>
-          Continuar con Google
-        </button>
-        <p class="auth-error" id="authError" hidden></p>
+        <p class="login-kicker">truchi<span>count</span></p>
+        <h1>Dividí gastos.<br />Sin cuentas raras.</h1>
+        <p>Entrá con Google para crear Counts, compartirlos y mantener cada movimiento guardado.</p>
+        <button class="primary-button google-button" id="googleLoginButton" type="button"><span>G</span>Continuar con Google</button>
+        <p class="form-error" id="authError" hidden></p>
       </div>
     </section>
 
-    <main class="app-shell" aria-live="polite" hidden>
-      <section class="screen screen-home is-active" id="homeScreen">
-        <header class="home-header">
-          <div>
-            <h1><span>truchi</span>count</h1>
-          </div>
-          <div class="header-actions">
-            <nav class="top-nav" aria-label="Navegacion principal">
-              <button class="nav-item is-selected" type="button" data-view="home">
-                <strong>tt</strong>
-                <span>Grupos</span>
-              </button>
-              <button class="nav-item" type="button" data-view="archived">
-                <strong>□</strong>
-                <span>Archivados</span>
-              </button>
-              <button class="nav-item" type="button" data-view="settings">
-                <strong>⚙</strong>
-                <span>Ajustes</span>
-              </button>
-            </nav>
-            <button class="primary-button compact-action" id="newProjectButton" type="button">Crear grupo</button>
-            <button class="user-button" id="accountButton" type="button" title="Mi cuenta"></button>
-          </div>
-        </header>
+    <main class="app-shell" id="appShell" hidden>
+      <header class="app-header">
+        <button class="brand-button" id="homeButton" type="button" aria-label="Ir a inicio">truchi<span>count</span></button>
+        <div class="header-controls"><button class="icon-button" id="settingsButton" type="button" aria-label="Configuración">⚙</button><button class="user-button" id="accountButton" type="button" aria-label="Mi cuenta"></button></div>
+      </header>
 
-        <section class="project-list" id="projectList"></section>
+      <section class="screen" id="homeScreen">
+        <div class="page-heading"><div><p class="eyebrow" id="welcomeText">Hola</p><h1>Tus Counts</h1></div><button class="primary-button compact-action" id="newCountButton" type="button">+ Nuevo Count</button></div>
+        <div class="project-list" id="countList"></div>
       </section>
 
-      <section class="screen screen-archived" id="archivedScreen" hidden>
-        <header class="settings-header">
-          <button class="round-button" id="archivedBackButton" type="button" aria-label="Volver">‹</button>
-          <h2>Archivados</h2>
-        </header>
-        <section class="project-list" id="archivedProjectList"></section>
-      </section>
-
-      <section class="screen screen-settings" id="settingsScreen" hidden>
-        <header class="settings-header">
-          <button class="round-button" id="settingsBackButton" type="button" aria-label="Volver">‹</button>
-          <h2>Ajustes</h2>
-        </header>
-
-        <section class="settings-section">
-          <div class="section-heading">
-            <h3>Categorias</h3>
-          </div>
-          <div class="settings-list" id="categoryList"></div>
-          <form class="inline-form" id="categoryForm">
-            <input name="emoji" placeholder="🧾" aria-label="Emoji categoria" />
-            <input name="name" placeholder="Nueva categoria" required aria-label="Nombre categoria" />
-            <button type="submit">+</button>
-          </form>
-        </section>
-
-        <section class="settings-section">
-          <div class="section-heading">
-            <h3>Monedas</h3>
-          </div>
-          <div class="settings-list" id="currencyList"></div>
-          <form class="inline-form" id="currencyForm">
-            <input name="code" placeholder="ARS" maxlength="3" required aria-label="Codigo moneda" />
-            <input name="name" placeholder="Argentine Peso" required aria-label="Nombre moneda" />
-            <button type="submit">+</button>
-          </form>
-        </section>
-      </section>
-
-      <section class="screen screen-detail" id="detailScreen" hidden>
-        <header class="detail-header">
-          <div class="toolbar">
-            <button class="round-button" id="backButton" type="button" aria-label="Volver">‹</button>
-          </div>
-          <div class="project-title">
-            <h2 id="detailTitle">Depto - Mayo '26</h2>
-            <span class="status-pill" id="detailStatus" hidden>Archivado</span>
-          </div>
-          <div class="detail-actions">
-            <button class="primary-button compact-action" id="addExpenseButton" type="button">Cargar gasto</button>
-            <button class="round-button" id="menuButton" type="button" aria-label="Menu">···</button>
-          </div>
-          <div class="tabs" role="tablist" aria-label="Vistas del proyecto">
-            <button class="tab is-selected" data-tab="expenses" type="button">Gastos</button>
-            <button class="tab" data-tab="balances" type="button">Balances</button>
-            <button class="tab" data-tab="photos" type="button">Fotos</button>
-          </div>
-        </header>
-
+      <section class="screen" id="detailScreen" hidden>
+        <div class="detail-topline"><button class="back-button" id="backButton" type="button">‹ <span>Counts</span></button><button class="icon-button" id="shareButton" type="button" aria-label="Invitar personas">↗</button></div>
+        <div class="detail-heading"><p class="eyebrow">Count</p><h1 id="countTitle"></h1><p id="memberSummary"></p></div>
+        <div class="tabs" role="tablist"><button class="tab is-selected" data-tab="expenses" type="button">Gastos</button><button class="tab" data-tab="balances" type="button">Balances</button></div>
         <section class="tab-panel is-active" id="expensesPanel">
-          <div class="totals-row">
-            <div>
-              <span>Vos pagaste</span>
-              <strong id="myExpenses">$ 0,00</strong>
-            </div>
-            <div>
-              <span>Total del grupo</span>
-              <strong id="totalExpenses">$ 0,00</strong>
-            </div>
-          </div>
-          <div class="expense-list" id="expenseList"></div>
+          <div class="totals-row" id="totalCards"></div><button class="filter-toggle secondary-button" id="filterToggle" type="button">Filtrar gastos</button>
+          <section class="filter-panel" id="filterPanel" hidden><label>Buscar<input id="filterSearch" type="search" placeholder="Descripción o comercio" /></label><div class="form-grid"><label>Categoría<select id="filterCategory"><option value="">Todas</option></select></label><label>Pagó<select id="filterPayer"><option value="">Cualquiera</option></select></label><label>Participante<select id="filterParticipant"><option value="">Cualquiera</option></select></label><label>Desde<input id="filterFrom" type="date" /></label><label>Hasta<input id="filterTo" type="date" /></label></div><button class="text-button" id="clearFilters" type="button">Limpiar filtros</button></section>
+          <div class="expense-list" id="expenseList"></div><button class="primary-button add-expense-button" id="addExpenseButton" type="button">+ Agregar gasto</button>
         </section>
+        <section class="tab-panel" id="balancesPanel"><section class="action-list" id="balanceActions"></section><h2 class="section-title">Balance por persona</h2><div class="balance-list" id="balanceList"></div></section>
+      </section>
 
-        <section class="tab-panel" id="balancesPanel">
-          <article class="settlement-card" id="settlementCard"></article>
-          <div class="section-heading">
-            <h3>Balances</h3>
-            <button class="sort-button" id="sortBalances" type="button" aria-label="Ordenar balances">↕</button>
-          </div>
-          <div class="balance-list" id="balanceList"></div>
-        </section>
-
-        <section class="tab-panel" id="photosPanel">
-          <div class="empty-state">
-            <strong>Sin fotos todavia</strong>
-            <span>Las fotos de tickets van a vivir aca cuando conectemos storage.</span>
-          </div>
-        </section>
+      <section class="screen" id="settingsScreen" hidden>
+        <div class="detail-topline"><button class="back-button" id="settingsBackButton" type="button">‹ <span>Volver</span></button></div><div class="detail-heading"><p class="eyebrow">Configuración</p><h1>Ajustes</h1></div>
+        <section class="settings-section"><h2>Monedas</h2><p class="section-copy">Elegí las monedas que podés usar en tus gastos.</p><div class="settings-list" id="currencyList"></div></section>
+        <section class="settings-section"><h2>Categorías</h2><div class="settings-list" id="categoryList"></div><form class="inline-form" id="categoryForm"><input name="name" required maxlength="48" placeholder="Nueva categoría" /><button class="secondary-button" type="submit">Agregar</button></form></section>
+        <section class="settings-section disabled-setting"><h2>Exportar datos</h2><p>Próximamente</p></section>
       </section>
     </main>
 
-    <dialog class="modal" id="projectModal">
-      <form method="dialog" class="modal-card" id="projectForm">
-        <button class="close-button" value="cancel" type="button" data-close-project>×</button>
-        <h2>Nuevo truchicount</h2>
-        <label>
-          Nombre
-          <input name="name" placeholder="Vacaciones Bariloche" required />
-        </label>
-        <label>
-          Moneda
-          <select name="currency" id="projectCurrencySelect"></select>
-        </label>
-        <div>
-          <h3 class="form-heading">Participantes</h3>
-          <div class="participant-box" id="projectParticipants"></div>
-          <button class="text-button" id="addProjectParticipant" type="button">Agregar participante</button>
-        </div>
-        <p class="form-error" id="projectError" hidden></p>
-        <button class="primary-button" type="submit">Crear</button>
-      </form>
-    </dialog>
-
-    <dialog class="modal" id="projectSettingsModal">
-      <form method="dialog" class="modal-card" id="projectSettingsForm">
-        <button class="close-button" value="cancel" type="button" data-close-project-settings>×</button>
-        <h2>Editar truchicount</h2>
-        <label>
-          Moneda
-          <select name="currency" id="editProjectCurrencySelect"></select>
-        </label>
-        <div>
-          <h3 class="form-heading">Participantes</h3>
-          <div class="participant-box" id="editProjectParticipants"></div>
-          <button class="text-button" id="addEditProjectParticipant" type="button">Agregar participante</button>
-        </div>
-        <p class="form-error" id="projectSettingsError" hidden></p>
-        <button class="secondary-button" id="copyInviteButton" type="button">Copiar link corto</button>
-        <button class="secondary-button" id="whatsappInviteButton" type="button">Enviar por WhatsApp</button>
-        <p class="form-note" id="inviteLinkStatus" hidden></p>
-        <button class="secondary-button" id="archiveProjectButton" type="button">Archivar truchicount</button>
-        <button class="primary-button" type="submit">Guardar</button>
-      </form>
-    </dialog>
-
-    <dialog class="modal" id="accountModal">
-      <form method="dialog" class="modal-card" id="accountForm">
-        <button class="close-button" value="cancel" type="button" data-close-account>×</button>
-        <div class="modal-heading">
-          <h2>Mi cuenta</h2>
-          <p id="accountEmail"></p>
-        </div>
-        <label>
-          Nombre visible
-          <input name="displayName" id="accountName" placeholder="Tu nombre" required />
-        </label>
-        <p class="form-error" id="accountError" hidden></p>
-        <section class="form-section approval-section" id="accountApprovalSection">
-          <div class="section-heading compact-heading">
-            <h3>Panel de admin</h3>
-          </div>
-          <div class="request-list" id="approvalRequestList"></div>
-          <p class="form-note" id="approvalStatus" hidden></p>
-        </section>
-        <button class="secondary-button" id="signOutButton" type="button">Cerrar sesión</button>
-        <button class="primary-button" type="submit">Guardar nombre</button>
-      </form>
-    </dialog>
-
-    <dialog class="modal" id="inviteModal">
-      <form method="dialog" class="modal-card" id="inviteForm">
-        <div class="modal-heading">
-          <h2>Unirte al truchicount</h2>
-          <p id="inviteProjectTitle"></p>
-        </div>
-        <div class="choice-list" id="inviteMemberOptions"></div>
-        <p class="form-error" id="inviteError" hidden></p>
-      </form>
-    </dialog>
-
-    <dialog class="modal" id="pendingAccessModal">
-      <form method="dialog" class="modal-card">
-        <div class="modal-heading">
-          <h2>Solicitud enviada</h2>
-          <p id="pendingAccessText">El admin tiene que aprobar tu ingreso.</p>
-        </div>
-        <button class="secondary-button" id="pendingSignOutButton" type="button">Cerrar sesión</button>
-      </form>
-    </dialog>
-
-    <dialog class="modal" id="expenseModal">
-      <form method="dialog" class="modal-card expense-form" id="expenseForm">
-        <button class="close-button" value="cancel" type="button" data-close-expense>×</button>
-        <div class="modal-heading">
-          <h2>Agregar gasto</h2>
-          <p>Registrá quién pagó y cómo se divide.</p>
-        </div>
-
-        <section class="scan-section mobile-only">
-          <input id="receiptInput" type="file" accept="image/*" capture="environment" hidden />
-          <input name="source" type="hidden" value="manual" />
-          <input name="ocrText" type="hidden" />
-          <button class="secondary-button scan-button" id="scanReceiptButton" type="button">Escanear ticket</button>
-          <p class="form-note" id="scanStatus" hidden></p>
-        </section>
-
-        <section class="form-section">
-          <label>
-            Título
-            <input name="title" placeholder="Ej. Supermercado" required />
-          </label>
-          <label>
-            Categoría
-            <select name="category" id="categorySelect"></select>
-          </label>
-        </section>
-
-        <section class="form-section optional-expense-fields mobile-only">
-          <label>
-            Comercio
-            <input name="merchant" placeholder="Ej. Carrefour" />
-          </label>
-          <label>
-            Medio de pago
-            <input name="paymentMethod" placeholder="Ej. Mercado Pago" />
-          </label>
-          <label>
-            Notas
-            <textarea name="notes" rows="2" placeholder="Detalle opcional"></textarea>
-          </label>
-        </section>
-
-        <section class="form-section form-grid">
-          <label class="amount-field">
-            Monto
-            <input name="amount" inputmode="decimal" placeholder="0,00" required />
-          </label>
-          <label>
-            Moneda
-            <select name="currency" id="expenseCurrencySelect"></select>
-          </label>
-        </section>
-
-        <section class="form-section form-grid">
-          <label>
-            Pagado por
-            <select name="paidBy" id="paidBySelect"></select>
-          </label>
-          <label>
-            Fecha
-            <input name="date" type="date" required />
-          </label>
-        </section>
-
-        <section class="form-section split-section">
-          <div class="split-header">
-            <strong>División</strong>
-            <select name="splitMode">
-              <option value="equal">En partes iguales</option>
-              <option value="manual">Manual</option>
-            </select>
-          </div>
-          <div class="split-box" id="splitMembers"></div>
-          <p class="form-error" id="splitError" hidden></p>
-        </section>
-
-        <button class="primary-button" type="submit">Guardar gasto</button>
-      </form>
-    </dialog>
-
-    <template id="projectTemplate">
-      <button class="project-card" type="button">
-        <span class="project-copy">
-          <strong></strong>
-          <small></small>
-        </span>
-        <span class="chevron">›</span>
-      </button>
-    </template>
-
-    <template id="expenseTemplate">
-      <article class="expense-card">
-        <span class="expense-icon"></span>
-        <span class="expense-copy">
-          <strong></strong>
-          <small></small>
-        </span>
-        <span class="expense-amount"></span>
-      </article>
-    </template>
-
-    <script src="./app.js?v=20260902-3" type="module"></script>
+    <dialog class="modal" id="countModal"><form class="modal-card" id="countForm"><button class="close-button" type="button" data-close="countModal">×</button><h2>Nuevo Count</h2><label>Nombre<input name="name" required maxlength="80" placeholder="Ej. Viaje a Brasil" /></label><label>Moneda principal<select name="currency" id="countCurrency"></select></label><p class="form-error" id="countError" hidden></p><button class="primary-button" type="submit">Crear Count</button></form></dialog>
+    <dialog class="modal" id="expenseModal"><form class="modal-card expense-form" id="expenseForm"><button class="close-button" type="button" data-close="expenseModal">×</button><h2 id="expenseModalTitle">Nuevo gasto</h2><label>Descripción<input name="title" required maxlength="100" placeholder="Ej. Compra semanal" /></label><label>Comercio<input name="merchant" list="merchantOptions" maxlength="100" placeholder="Ej. Carrefour" /></label><datalist id="merchantOptions"></datalist><div class="form-grid"><label>Monto<input name="amount" required inputmode="decimal" placeholder="0,00" /></label><label>Moneda<select name="currency" id="expenseCurrency"></select></label></div><div class="form-grid"><label>Fecha<input name="expenseDate" type="date" required /></label><label>Categoría<select name="category" id="expenseCategory" required></select></label></div><label>Pagó<select name="payer" id="expensePayer" required></select></label><section class="split-section"><div class="split-heading"><strong>Dividir entre</strong><small id="splitPreview"></small></div><div class="participant-checks" id="participantChecks"></div></section><label>Método de pago<input value="Próximamente" disabled /></label><label>Notas<textarea name="notes" rows="3" maxlength="500" placeholder="Detalle opcional"></textarea></label><p class="form-error" id="expenseError" hidden></p><button class="primary-button" id="saveExpenseButton" type="submit">Guardar gasto</button></form></dialog>
+    <dialog class="modal" id="expenseDetailModal"><section class="modal-card"><button class="close-button" type="button" data-close="expenseDetailModal">×</button><div id="expenseDetailContent"></div><div class="modal-actions"><button class="secondary-button" id="editExpenseButton" type="button">Editar</button><button class="danger-button" id="deleteExpenseButton" type="button">Eliminar</button></div></section></dialog>
+    <dialog class="modal" id="settlementModal"><section class="modal-card"><button class="close-button" type="button" data-close="settlementModal">×</button><div id="settlementContent"></div><div class="modal-actions"><button class="secondary-button" type="button" data-close="settlementModal">Cancelar</button><button class="primary-button" id="confirmSettlementButton" type="button">Marcar como pagado</button></div></section></dialog>
+    <dialog class="modal" id="inviteModal"><section class="modal-card"><button class="close-button" type="button" data-close="inviteModal">×</button><h2>Invitá a tu Count</h2><p class="section-copy">Cualquier persona con este link podrá sumarse.</p><label>Link de invitación<input id="inviteLink" readonly /></label><div class="modal-actions"><button class="secondary-button" id="copyInviteButton" type="button">Copiar link</button><button class="primary-button" id="shareInviteButton" type="button">Compartir</button></div><p class="form-note" id="inviteStatus" hidden></p></section></dialog>
+    <dialog class="modal" id="accountModal"><form class="modal-card" id="accountForm"><button class="close-button" type="button" data-close="accountModal">×</button><h2>Mi cuenta</h2><p class="section-copy" id="accountEmail"></p><label>Nombre visible<input id="accountName" name="displayName" required maxlength="80" /></label><p class="form-error" id="accountError" hidden></p><button class="secondary-button" id="logoutButton" type="button">Cerrar sesión</button><button class="primary-button" type="submit">Guardar</button></form></dialog>
+    <script src="./app.js?v=v1-reversion" type="module"></script>
   </body>
 </html>
