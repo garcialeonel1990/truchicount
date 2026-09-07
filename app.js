@@ -1,13 +1,12 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, updateDisplayName, watchAuth } from "./firebase.js";
-import { archiveCount, createCategory, createCount, createInvite, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { archiveCount, createCategory, createCount, createInvite, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, removeCountMember, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
 const state = { user: null, profile: null, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
 const unsubscribers = { app: [], detail: [] };
-const filters = { search: "", category: "", payer: "", participant: "", from: "", to: "" };
-const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -27,6 +26,7 @@ function categoryDisplay(categoryId, fallbackName = "") {
 function categoryEmoji(category) { return category?.emoji || icon(category?.name); }
 function balances() { return calculateNetBalances(state.members, state.expenses, state.settlements); }
 function isReadOnly() { return state.count?.status === "archived"; }
+function canManageMembers() { return state.count?.ownerUid === state.user?.uid || state.user?.email === "garcialeonel1990@gmail.com"; }
 function pendingCurrencies(balance = balances()) { return [...new Set(Object.values(balance).flatMap((byCurrency) => Object.entries(byCurrency).filter(([, amount]) => amount !== 0).map(([currency]) => currency)))].sort(); }
 function setBusy(button, busy, label, busyLabel = "Guardando…") { button.disabled = busy; button.textContent = busy ? busyLabel : label; }
 function error(el, exception, fallback) { console.error(exception); el.textContent = exception?.message || fallback; el.hidden = false; }
@@ -125,27 +125,18 @@ function renderDetail() {
   $("#addExpenseButton").hidden = archived;
   $("#archiveSummary").hidden = !archived;
   $("#archiveMetadata").textContent = archived ? "Archivado el " + prettyDate(state.count.lastArchivedAt) + " por " + (state.count.lastArchivedByNameSnapshot || "un integrante") : "";
-  fillFilters(); renderExpenses(); renderBalances();
+  renderExpenses(); renderBalances();
 }
 
 function totals(items) { return items.reduce((all, item) => Object.assign(all, { [item.currency]: (all[item.currency] || 0) + item.amountMinor }), {}); }
 function moneyGroups(items) { const values = Object.entries(totals(items)); return values.length ? values.map(([currency, amount]) => formatMoney(amount, currency)).join(" · ") : formatMoney(0); }
-function expenseMatches(expense) {
-  const words = (expense.title + " " + (expense.merchantNameSnapshot || "")).toLocaleLowerCase("es");
-  return (!filters.search || words.includes(filters.search.toLocaleLowerCase("es"))) &&
-    (!filters.category || expense.categoryId === filters.category) &&
-    (!filters.payer || expense.payerUid === filters.payer) &&
-    (!filters.participant || expense.participantUids.includes(filters.participant)) &&
-    (!filters.from || dateISO(expense.expenseDate) >= filters.from) &&
-    (!filters.to || dateISO(expense.expenseDate) <= filters.to);
-}
 function renderExpenses() {
   const all = activeExpenses();
   $("#totalCards").innerHTML = '<article><span>Vos pagaste</span><strong>' + moneyGroups(all.filter((item) => item.payerUid === state.user.uid)) + '</strong></article><article><span>Total del Count</span><strong>' + moneyGroups(all) + "</strong></article>";
   const list = $("#expenseList"); list.replaceChildren();
-  const items = all.filter(expenseMatches).sort((a, b) => dateISO(b.expenseDate).localeCompare(dateISO(a.expenseDate)));
+  const items = all.sort((a, b) => dateISO(b.expenseDate).localeCompare(dateISO(a.expenseDate)));
   if (!items.length) {
-    list.innerHTML = all.length ? '<section class="empty-state"><strong>No hay gastos con esos filtros.</strong><span>Probá cambiar o limpiar los filtros.</span></section>' : '<section class="empty-state"><strong>Todavía no hay gastos.</strong><span>Agregá el primer gasto compartido.</span></section>';
+    list.innerHTML = '<section class="empty-state"><strong>Todavía no hay gastos.</strong><span>Agregá el primer gasto compartido.</span></section>';
     return;
   }
   items.forEach((expense) => {
@@ -190,11 +181,6 @@ function putOptions(select, items, selected, empty) {
   if (!select) return;
   select.replaceChildren(); if (empty !== undefined) select.add(new Option(empty, ""));
   items.forEach((item) => select.add(new Option(item.name, item.id, false, item.id === selected)));
-}
-function fillFilters() {
-  putOptions($("#filterCategory"), activeCategories().map((item) => ({ id: item.id, name: categoryEmoji(item) + " " + item.name })), filters.category, "Todas");
-  const members = state.members.map((item) => ({ id: item.uid, name: item.displayNameSnapshot }));
-  putOptions($("#filterPayer"), members, filters.payer, "Cualquiera"); putOptions($("#filterParticipant"), members, filters.participant, "Cualquiera");
 }
 function renderSettings() {
   if (!state.user) return;
@@ -320,6 +306,7 @@ function openCountActions() {
   if (!state.count) return;
   const archived = isReadOnly();
   const pending = pendingCurrencies();
+  $("#manageMembersAction").hidden = archived;
   $("#archiveCountAction").hidden = archived;
   $("#unarchiveCountAction").hidden = !archived;
   $("#archiveCountAction").disabled = !archived && pending.length > 0;
@@ -328,6 +315,38 @@ function openCountActions() {
     ? "No se puede archivar porque todavía hay saldo pendiente en " + pending[0] + "."
     : "No se puede archivar porque todavía hay saldos pendientes.";
   dialogs.countActionsModal.showModal();
+}
+
+function openMemberModal() {
+  dialogs.countActionsModal.close();
+  $("#memberError").hidden = true;
+  const list = $("#memberList");
+  list.replaceChildren();
+  state.members.forEach((member) => {
+    const row = document.createElement("article");
+    row.className = "member-row";
+    const isOwner = member.role === "owner" || member.uid === state.count?.ownerUid;
+    const canRemove = canManageMembers() && !isOwner && member.uid !== state.user.uid;
+    row.innerHTML = '<span class="member-avatar">' + esc(member.displayNameSnapshot.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(member.displayNameSnapshot) + '</strong><small>' + (isOwner ? "Owner" : "Integrante") + '</small></span>' + (canRemove ? '<button class="member-remove-button" type="button">Quitar</button>' : "");
+    const removeButton = row.querySelector("button");
+    if (removeButton) on(removeButton, "click", () => removeMember(member, removeButton));
+    list.append(row);
+  });
+  dialogs.memberModal.showModal();
+}
+
+async function removeMember(member, button) {
+  if (!confirm("¿Quitar a " + member.displayNameSnapshot + " de este Count?\n\nSólo se puede quitar a alguien que no tenga saldos pendientes.")) return;
+  $("#memberError").hidden = true;
+  setBusy(button, true, "Quitar");
+  try {
+    await removeCountMember({ countId: state.count.id, membership: member, actor: state.user });
+    button.closest(".member-row")?.remove();
+    showToast("✓ Integrante eliminado");
+  } catch (exception) {
+    error($("#memberError"), exception, "No pudimos quitar al integrante.");
+    setBusy(button, false, "Quitar");
+  }
 }
 
 function openArchiveConfirmation() {
@@ -345,17 +364,13 @@ function openUnarchiveConfirmation() {
 }
 
 on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true; const button = $("#googleLoginButton"); setBusy(button, true, "Continuar con Google"); try { await signInWithGoogle(); } catch (exception) { error($("#authError"), exception, "No se pudo iniciar sesión."); setBusy(button, false, "Continuar con Google"); } });
-on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions);
+on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal); on($("#memberInviteButton"), "click", () => { dialogs.memberModal.close(); openInviteModal(); });
 on($("#newCategoryButton"), "click", () => openCategoryModal());
 on($("#emojiPickerButton"), "click", openEmojiPicker);
 on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
-on($("#filterToggle"), "click", () => { $("#filterPanel").hidden = !$("#filterPanel").hidden; });
-const filterMap = { filterSearch: "search", filterCategory: "category", filterPayer: "payer", filterParticipant: "participant", filterFrom: "from", filterTo: "to" };
-Object.entries(filterMap).forEach(([id, key]) => on($("#" + id), "input", (event) => { filters[key] = event.target.value; renderExpenses(); }));
-on($("#clearFilters"), "click", () => { Object.keys(filters).forEach((key) => filters[key] = ""); Object.keys(filterMap).forEach((id) => { $("#" + id).value = ""; }); renderExpenses(); });
 on($("#expenseForm"), "input", updateSplitPreview); on($("#expenseForm"), "change", updateSplitPreview);
 
 on($("#countForm"), "submit", async (event) => {

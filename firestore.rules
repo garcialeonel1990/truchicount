@@ -109,7 +109,24 @@ service cloud.firestore {
             && request.resource.data.role == "owner")
           || hasActiveInvite(request.resource.data.inviteToken, request.resource.data.countId)
         ));
-      allow update, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin()
+        || (isOwner(resource.data.countId)
+          && isActiveCount(resource.data.countId)
+          && resource.data.role != "owner"
+          && resource.data.status == "active"
+          && request.resource.data.status == "inactive"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "removedAt", "removedBy", "updatedAt", "updatedBy"])
+          && request.resource.data.removedBy == request.auth.uid)
+        || (signedIn()
+          && resource.data.uid == request.auth.uid
+          && resource.data.status == "inactive"
+          && request.resource.data.status == "active"
+          && isActiveCount(resource.data.countId)
+          && hasActiveInvite(request.resource.data.inviteToken, resource.data.countId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]));
+      allow delete: if isSuperAdmin();
     }
 
     match /invites/{token} {

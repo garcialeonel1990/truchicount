@@ -48,20 +48,37 @@ export async function ensureUser(user) {
 export const watchUser = (uid, onChange, onError) => onSnapshot(doc(db, "users", uid), (snap) => onChange(snap.exists() ? toItem(snap) : null), onError);
 
 export function watchCounts(uid, onChange, onError) {
-  return onSnapshot(query(collection(db, "memberships"), where("uid", "==", uid), where("status", "==", "active")), async (snapshot) => {
-    try {
-      const memberships = snapshot.docs.map(toItem);
-      const countDocs = await Promise.all(memberships.map((membership) => getDoc(doc(db, "counts", membership.countId))));
-      onChange(countDocs
-        .filter((item) => item.exists())
-        .map((item) => ({ ...toItem(item), status: item.data().status || "active" }))
-        .sort((a, b) => {
-          if (a.status !== b.status) return a.status === "active" ? -1 : 1;
-          if (a.status === "archived") return (dateValue(b.lastArchivedAt) || 0) - (dateValue(a.lastArchivedAt) || 0);
-          return (dateValue(b.updatedAt) || 0) - (dateValue(a.updatedAt) || 0);
-        }));
-    } catch (error) { onError?.(error); }
-  }, onError);
+  let stopCountWatches = [];
+  let counts = new Map();
+  const publish = () => onChange([...counts.values()].sort((a, b) => {
+    if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+    if (a.status === "archived") return (dateValue(b.lastArchivedAt) || 0) - (dateValue(a.lastArchivedAt) || 0);
+    return (dateValue(b.updatedAt) || 0) - (dateValue(a.updatedAt) || 0);
+  }));
+
+  const stopMemberships = onSnapshot(
+    query(collection(db, "memberships"), where("uid", "==", uid), where("status", "==", "active")),
+    (snapshot) => {
+      stopCountWatches.forEach((stop) => stop());
+      stopCountWatches = [];
+      counts = new Map();
+      snapshot.docs.map(toItem).forEach((membership) => {
+        const stopCount = onSnapshot(doc(db, "counts", membership.countId), (countSnapshot) => {
+          if (countSnapshot.exists()) counts.set(countSnapshot.id, { ...toItem(countSnapshot), status: countSnapshot.data().status || "active" });
+          else counts.delete(membership.countId);
+          publish();
+        }, onError);
+        stopCountWatches.push(stopCount);
+      });
+      publish();
+    },
+    onError
+  );
+
+  return () => {
+    stopMemberships();
+    stopCountWatches.forEach((stop) => stop());
+  };
 }
 
 function dateValue(value) {
@@ -237,6 +254,30 @@ export async function createSettlement({ countId, suggestion, members, actor }) 
   await batch.commit();
 }
 
+export async function removeCountMember({ countId, membership, actor }) {
+  const countRef = doc(db, "counts", countId);
+  const actorMembershipRef = doc(db, "memberships", `${countId}_${actor.uid}`);
+  const memberRef = doc(db, "memberships", `${countId}_${membership.uid}`);
+  const [countSnapshot, actorMembership, memberSnapshot, balances] = await Promise.all([
+    getDoc(countRef), getDoc(actorMembershipRef), getDoc(memberRef), getCountBalance(countId),
+  ]);
+  if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
+  const isSuperAdmin = actor.email === "garcialeonel1990@gmail.com";
+  if (!isSuperAdmin && countSnapshot.data().ownerUid !== actor.uid && actorMembership.data()?.role !== "owner") throw new Error("Sólo el owner puede quitar integrantes.");
+  if (!memberSnapshot.exists() || memberSnapshot.data().status !== "active") throw new Error("Este integrante ya no está activo.");
+  if (memberSnapshot.data().role === "owner" || membership.uid === countSnapshot.data().ownerUid) throw new Error("No se puede quitar al owner del Count.");
+  if (Object.values(balances[membership.uid] || {}).some((amount) => amount !== 0)) throw new Error("No se puede quitar a este integrante porque todavía tiene saldo pendiente.");
+
+  const batch = writeBatch(db);
+  batch.update(memberRef, { status: "inactive", removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  audit(batch, {
+    entityType: "membership", entityId: memberRef.id, countId, action: "removeMember", actor,
+    before: { uid: membership.uid, role: memberSnapshot.data().role, status: "active" },
+    after: { uid: membership.uid, role: memberSnapshot.data().role, status: "inactive" },
+  });
+  await batch.commit();
+}
+
 function archiveSnapshot() {
   return Object.fromEntries(Object.keys(CURRENCIES).map((currency) => [currency, 0]));
 }
@@ -360,8 +401,10 @@ export async function joinInvite(token, user) {
     if (!count.exists() || count.data().status === "archived") throw new Error("Este Count está archivado y no acepta nuevos miembros.");
     const membershipRef = doc(db, "memberships", `${countId}_${user.uid}`);
     const membership = await transaction.get(membershipRef);
+    const needsMembership = !membership.exists() || membership.data().status !== "active";
     if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, role: "member", status: "active", displayNameSnapshot: user.displayName || user.email || "Usuario", emailSnapshot: user.email || "", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
-    transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + (membership.exists() ? 0 : 1), lastUsedAt: serverTimestamp() });
+    else if (needsMembership) transaction.update(membershipRef, { status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
+    transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + (needsMembership ? 1 : 0), lastUsedAt: serverTimestamp() });
     return countId;
   });
 }
