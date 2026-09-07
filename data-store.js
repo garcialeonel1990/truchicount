@@ -251,14 +251,14 @@ function pendingBalanceCurrencies(balances) {
   return [...pending].sort();
 }
 
-async function getCountBalanceInTransaction(transaction, countId) {
+async function getCountBalance(countId) {
   const membersQuery = query(collection(db, "memberships"), where("countId", "==", countId), where("status", "==", "active"));
   const expensesQuery = collection(db, "counts", countId, "expenses");
   const settlementsQuery = collection(db, "counts", countId, "settlements");
   const [members, expenses, settlements] = await Promise.all([
-    transaction.get(membersQuery),
-    transaction.get(expensesQuery),
-    transaction.get(settlementsQuery),
+    getDocs(membersQuery),
+    getDocs(expensesQuery),
+    getDocs(settlementsQuery),
   ]);
   return calculateNetBalances(
     members.docs.map(toItem),
@@ -270,47 +270,44 @@ async function getCountBalanceInTransaction(transaction, countId) {
 export async function archiveCount({ countId, actor }) {
   const countRef = doc(db, "counts", countId);
   const membershipRef = doc(db, "memberships", `${countId}_${actor.uid}`);
-  return runTransaction(db, async (transaction) => {
-    const [countSnapshot, membershipSnapshot] = await Promise.all([
-      transaction.get(countRef),
-      transaction.get(membershipRef),
-    ]);
-    if (!countSnapshot.exists()) throw new Error("Este Count ya no existe.");
-    if (!membershipSnapshot.exists() || membershipSnapshot.data().status !== "active") throw new Error("No tenés permisos para archivar este Count.");
-    const count = toItem(countSnapshot);
-    if (count.status === "archived") throw new Error("Este Count ya está archivado.");
+  const [countSnapshot, membershipSnapshot, balances] = await Promise.all([
+    getDoc(countRef),
+    getDoc(membershipRef),
+    getCountBalance(countId),
+  ]);
+  if (!countSnapshot.exists()) throw new Error("Este Count ya no existe.");
+  if (!membershipSnapshot.exists() || membershipSnapshot.data().status !== "active") throw new Error("No tenés permisos para archivar este Count.");
+  const count = toItem(countSnapshot);
+  if (count.status === "archived") throw new Error("Este Count ya está archivado.");
 
-    const balances = await getCountBalanceInTransaction(transaction, countId);
-    const pendingCurrencies = pendingBalanceCurrencies(balances);
-    if (pendingCurrencies.length) {
-      const suffix = pendingCurrencies.length === 1 ? " en " + pendingCurrencies[0] : " en " + pendingCurrencies.join(", ");
-      throw new Error("No se pudo archivar el Count porque todavía hay saldo pendiente" + suffix + ".");
-    }
+  const pendingCurrencies = pendingBalanceCurrencies(balances);
+  if (pendingCurrencies.length) {
+    const suffix = pendingCurrencies.length === 1 ? " en " + pendingCurrencies[0] : " en " + pendingCurrencies.join(", ");
+    throw new Error("No se pudo archivar el Count porque todavía hay saldo pendiente" + suffix + ".");
+  }
 
-    const actorName = actor.displayName || actor.email || "Usuario";
-    const changes = {
-      status: "archived",
-      archiveBalanceSnapshot: archiveSnapshot(),
-      lastArchivedAt: serverTimestamp(),
-      lastArchivedBy: actor.uid,
-      lastArchivedByNameSnapshot: actorName,
-      updatedAt: serverTimestamp(),
-      updatedBy: actor.uid,
-    };
-    if (!count.firstArchivedAt) {
-      changes.firstArchivedAt = serverTimestamp();
-      changes.firstArchivedBy = actor.uid;
-    }
-    transaction.update(countRef, changes);
-    transaction.set(auditRef(), {
-      entityType: "count", entityId: countId, countId, action: "archiveCount",
-      actorUid: actor.uid, actorNameSnapshot: actorName,
-      before: { status: count.status || "active" },
-      after: { status: "archived" },
-      createdAt: serverTimestamp(),
-    });
-    return { balances, pendingCurrencies: [] };
+  const actorName = actor.displayName || actor.email || "Usuario";
+  const changes = {
+    status: "archived",
+    archiveBalanceSnapshot: archiveSnapshot(),
+    lastArchivedAt: serverTimestamp(),
+    lastArchivedBy: actor.uid,
+    lastArchivedByNameSnapshot: actorName,
+    updatedAt: serverTimestamp(),
+    updatedBy: actor.uid,
+  };
+  if (!count.firstArchivedAt) {
+    changes.firstArchivedAt = serverTimestamp();
+    changes.firstArchivedBy = actor.uid;
+  }
+  const batch = writeBatch(db);
+  batch.update(countRef, changes);
+  audit(batch, {
+    entityType: "count", entityId: countId, countId, action: "archiveCount", actor,
+    before: { status: count.status || "active" }, after: { status: "archived" },
   });
+  await batch.commit();
+  return { balances, pendingCurrencies: [] };
 }
 
 export async function unarchiveCount({ countId, actor }) {
