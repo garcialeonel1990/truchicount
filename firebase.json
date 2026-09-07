@@ -10,9 +10,7 @@
     "ignore": [
       "firebase.json",
       "README.md",
-      "readme.md",
       "AGENTS.md",
-      "firebase.md",
       ".agents/**",
       ".git/**",
       ".github/**",

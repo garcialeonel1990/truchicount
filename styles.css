@@ -45,10 +45,7 @@ html { min-height: 100%; background: var(--color-bg); }
 body {
   min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(circle at 92% 2%, rgba(20, 184, 166, 0.13), transparent 30rem),
-    linear-gradient(135deg, rgba(217, 70, 239, 0.06), transparent 24rem),
-    var(--color-bg);
+  background: var(--color-bg);
   color: var(--color-text);
 }
 
@@ -70,36 +67,6 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   min-height: 100vh;
   padding: 24px 16px;
   place-items: center;
-  overflow: hidden;
-  position: relative;
-}
-
-.login-screen::before,
-.login-screen::after {
-  position: absolute;
-  content: "";
-  pointer-events: none;
-}
-
-.login-screen::before {
-  width: 340px;
-  height: 340px;
-  top: -170px;
-  right: -110px;
-  border: 42px solid rgba(20, 184, 166, 0.16);
-  border-radius: 50%;
-  box-shadow: 0 0 80px rgba(20, 184, 166, 0.12);
-}
-
-.login-screen::after {
-  width: 96px;
-  height: 96px;
-  bottom: 10%;
-  left: -42px;
-  background:
-    linear-gradient(135deg, transparent 48%, rgba(217, 70, 239, 0.72) 49% 54%, transparent 55%),
-    linear-gradient(45deg, transparent 48%, rgba(153, 246, 228, 0.34) 49% 54%, transparent 55%);
-  transform: rotate(-12deg);
 }
 
 .login-card {
@@ -114,17 +81,6 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   background: rgba(11, 31, 51, 0.93);
   color: var(--gray-50);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
-}
-
-.login-card::before {
-  width: 34px;
-  height: 7px;
-  position: absolute;
-  top: 24px;
-  right: 26px;
-  background: var(--magenta-500);
-  box-shadow: 12px 11px 0 var(--teal-500);
-  content: "";
 }
 
 .login-kicker {
