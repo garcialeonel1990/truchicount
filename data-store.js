@@ -90,8 +90,8 @@ function cleanCategoryInput({ name, emoji }) {
 function categoryAuditData(category) {
   return {
     name: category.name,
-    emoji: category.emoji,
-    normalizedName: category.normalizedName,
+    emoji: category.emoji || "🧾",
+    normalizedName: category.normalizedName || normalizeCategoryName(category.name),
     status: category.status || "active",
   };
 }

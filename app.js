@@ -276,7 +276,7 @@ function openExpenseModal(expense) {
   form.elements.amount.value = expense ? formatMoneyPlain(expense.amountMinor) : ""; form.elements.expenseDate.value = expense ? dateISO(expense.expenseDate) : new Date().toISOString().slice(0, 10); form.elements.notes.value = expense?.notes || "";
   renderMerchantOptions(); updateSplitPreview(); dialogs.expenseModal.showModal();
 }
-function renderMerchantOptions() { const list = $("#merchantOptions"); if (!list) return; list.replaceChildren(); state.merchants.slice(0, 50).forEach((merchant) => list.add(new Option(merchant.name))); }
+function renderMerchantOptions() { const list = $("#merchantOptions"); if (!list) return; list.replaceChildren(); state.merchants.slice(0, 50).forEach((merchant) => list.append(new Option(merchant.name))); }
 function updateSplitPreview() { const selected = document.querySelectorAll("[name='participant']:checked").length; const minor = parseMoney($("#expenseForm").elements.amount.value); $("#splitPreview").textContent = selected ? formatMoney(minor ? Math.floor(minor / selected) : 0, $("#expenseCurrency").value) + " cada uno" : "Elegí al menos una persona"; }
 function openExpenseDetail(expense) {
   state.selectedExpense = expense;
