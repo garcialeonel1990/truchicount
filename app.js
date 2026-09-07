@@ -1,13 +1,13 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, updateDisplayName, watchAuth } from "./firebase.js";
-import { createCategory, createCount, createInvite, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, saveExpense, softDeleteExpense, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { createCategory, createCount, createInvite, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, saveExpense, softDeleteCategory, softDeleteExpense, updateCategory, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, selectedExpense: null, selectedSettlement: null };
+const state = { user: null, profile: null, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, toastTimer: null };
 const unsubscribers = { app: [], detail: [] };
 const filters = { search: "", category: "", payer: "", participant: "", from: "", to: "" };
-const dialogs = ["countModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "accountModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "accountModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -18,10 +18,18 @@ function dateISO(value) { const date = dateFrom(value); return date ? date.toISO
 function prettyDate(value) { const date = dateFrom(value); return date ? new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(date) : "Sin fecha"; }
 function nameOf(uid) { return state.members.find((member) => member.uid === uid)?.displayNameSnapshot || "Integrante"; }
 function activeExpenses() { return state.expenses.filter((expense) => expense.status === "active"); }
+function activeCategories() { return state.categories.filter((category) => category.status === "active"); }
+function categoryFor(id) { return state.categories.find((category) => category.id === id); }
+function categoryDisplay(categoryId, fallbackName = "") {
+  const category = categoryFor(categoryId);
+  return { name: category?.name || fallbackName || "Sin categoría", emoji: category?.emoji || icon(fallbackName) };
+}
+function categoryEmoji(category) { return category?.emoji || icon(category?.name); }
 function balances() { return calculateNetBalances(state.members, state.expenses, state.settlements); }
 function setBusy(button, busy, label) { button.disabled = busy; button.textContent = busy ? "Guardando…" : label; }
 function error(el, exception, fallback) { console.error(exception); el.textContent = exception?.message || fallback; el.hidden = false; }
-function icon(category) { const name = String(category).toLocaleLowerCase("es"); if (name.includes("super") || name.includes("comida")) return "🛒"; if (name.includes("salida")) return "🍽️"; if (name.includes("trans")) return "🚕"; if (name.includes("hogar")) return "🏠"; if (name.includes("salud")) return "💊"; if (name.includes("viaje")) return "✈️"; return "🧾"; }
+function icon(category) { const name = String(category).toLocaleLowerCase("es"); if (name.includes("super") || name.includes("comida")) return "🛒"; if (name.includes("salida")) return "🍔"; if (name.includes("trans")) return "🚕"; if (name.includes("serv")) return "💡"; if (name.includes("verd")) return "🥬"; if (name.includes("apo") || name.includes("masc")) return "🐶"; return "🧾"; }
+function showToast(message) { const toast = $("#toast"); clearTimeout(state.toastTimer); toast.textContent = message; toast.hidden = false; state.toastTimer = setTimeout(() => { toast.hidden = true; }, 2800); }
 
 completeRedirectSignIn().catch((exception) => error($("#authError"), exception, "No se pudo completar el inicio de sesión."));
 watchAuth(async (user) => {
@@ -41,7 +49,7 @@ watchAuth(async (user) => {
 
 function startAppWatches() {
   watch("app", watchUser(state.user.uid, (profile) => { state.profile = profile; renderHeader(); renderSettings(); }, console.error));
-  watch("app", watchCategories((items) => { state.categories = items; renderSettings(); }, console.error));
+  watch("app", watchCategories((items) => { state.categories = items; renderSettings(); if (state.count) renderDetail(); }, console.error));
   watch("app", watchMerchants((items) => { state.merchants = items; renderMerchantOptions(); }, console.error));
   watch("app", watchCounts(state.user.uid, (items) => { state.counts = items; renderHome(); }, console.error));
 }
@@ -129,8 +137,9 @@ function renderExpenses() {
     return;
   }
   items.forEach((expense) => {
+    const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
     const card = document.createElement("button"); card.className = "expense-card"; card.type = "button";
-    card.innerHTML = '<span class="expense-icon">' + icon(expense.categoryNameSnapshot) + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>' + esc(expense.categoryNameSnapshot) + " · " + prettyDate(expense.expenseDate) + '</small><small>Pagó ' + esc(expense.payerNameSnapshot) + " · " + expense.participantUids.length + ' participantes</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
+    card.innerHTML = '<span class="expense-icon">' + category.emoji + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>' + esc(category.name) + " · " + prettyDate(expense.expenseDate) + '</small><small>Pagó ' + esc(expense.payerNameSnapshot) + " · " + expense.participantUids.length + ' participantes</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
     on(card, "click", () => openExpenseDetail(expense)); list.append(card);
   });
 }
@@ -167,7 +176,7 @@ function putOptions(select, items, selected, empty) {
   items.forEach((item) => select.add(new Option(item.name, item.id, false, item.id === selected)));
 }
 function fillFilters() {
-  putOptions($("#filterCategory"), state.categories.map((item) => ({ id: item.id, name: item.name })), filters.category, "Todas");
+  putOptions($("#filterCategory"), activeCategories().map((item) => ({ id: item.id, name: categoryEmoji(item) + " " + item.name })), filters.category, "Todas");
   const members = state.members.map((item) => ({ id: item.uid, name: item.displayNameSnapshot }));
   putOptions($("#filterPayer"), members, filters.payer, "Cualquiera"); putOptions($("#filterParticipant"), members, filters.participant, "Cualquiera");
 }
@@ -182,7 +191,62 @@ function renderSettings() {
     currencies.append(row);
   });
   const categories = $("#categoryList"); categories.replaceChildren();
-  state.categories.forEach((category) => { const row = document.createElement("article"); row.className = "settings-row"; row.innerHTML = "<span>" + icon(category.name) + "</span><span><strong>" + esc(category.name) + "</strong></span>"; categories.append(row); });
+  const active = activeCategories();
+  if (!active.length) {
+    categories.innerHTML = '<div class="empty-category-row">No hay categorías activas.</div>';
+    return;
+  }
+  active.forEach((category) => {
+    const row = document.createElement("article"); row.className = "settings-row category-row";
+    row.innerHTML = '<span>' + categoryEmoji(category) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="category-actions"><button class="category-icon-button" type="button" aria-label="Editar categoría">✎</button><button class="category-icon-button category-delete-button" type="button" aria-label="Eliminar categoría">×</button></span>';
+    const buttons = row.querySelectorAll("button");
+    on(buttons[0], "click", () => openCategoryModal(category));
+    on(buttons[1], "click", () => deleteCategory(category));
+    categories.append(row);
+  });
+}
+
+function openCategoryModal(category = null) {
+  state.categoryEditing = category;
+  state.categoryEmoji = categoryEmoji(category) || "🧾";
+  $("#categoryForm").reset();
+  $("#categoryModalTitle").textContent = category ? "Editar categoría" : "Nueva categoría";
+  $("#categoryEmojiPreview").textContent = state.categoryEmoji;
+  $("#categoryForm").elements.name.value = category?.name || "";
+  $("#categoryError").hidden = true;
+  $("#categoryError").textContent = "";
+  dialogs.categoryModal.showModal();
+  $("#categoryForm").elements.name.focus();
+}
+
+function closeEmojiPicker() {
+  document.querySelector(".emoji-picker-popover")?.remove();
+}
+
+function openEmojiPicker() {
+  closeEmojiPicker();
+  const popover = document.createElement("div");
+  popover.className = "emoji-picker-popover";
+  const picker = document.createElement("emoji-picker");
+  picker.addEventListener("emoji-click", (event) => {
+    state.categoryEmoji = event.detail?.unicode || event.detail?.emoji?.unicode || event.detail?.emoji || "🧾";
+    $("#categoryEmojiPreview").textContent = state.categoryEmoji;
+    closeEmojiPicker();
+  });
+  popover.append(picker);
+  document.body.append(popover);
+}
+
+async function deleteCategory(category) {
+  const message = "¿Seguro que querés eliminar " + categoryEmoji(category) + " " + category.name + "?\n\nYa no va a aparecer para nuevos gastos. Los gastos existentes seguirán asociados.";
+  if (!confirm(message)) return;
+  try {
+    await softDeleteCategory({ category, actor: state.user });
+    showToast("✓ Categoría eliminada");
+  } catch (exception) {
+    console.error(exception);
+    showToast("No pudimos eliminar la categoría.");
+  }
 }
 
 function openCountModal() {
@@ -192,12 +256,13 @@ function openCountModal() {
   dialogs.countModal.showModal();
 }
 function openExpenseModal(expense) {
-  if (!state.members.length || !state.categories.length) return;
+  if (!state.members.length || !activeCategories().length) return;
   state.editing = expense || null; $("#expenseForm").reset(); $("#expenseError").hidden = true;
   $("#expenseModalTitle").textContent = expense ? "Editar gasto" : "Nuevo gasto";
   const enabled = state.profile?.enabledCurrencies || [DEFAULT_CURRENCY];
   putOptions($("#expenseCurrency"), enabled.map((code) => ({ id: code, name: code })), expense?.currency || DEFAULT_CURRENCY);
-  putOptions($("#expenseCategory"), state.categories.map((item) => ({ id: item.id, name: item.name })), expense?.categoryId || state.categories[0].id);
+  const categories = activeCategories();
+  putOptions($("#expenseCategory"), categories.map((item) => ({ id: item.id, name: categoryEmoji(item) + " " + item.name })), expense?.categoryId || categories[0].id);
   putOptions($("#expensePayer"), state.members.map((item) => ({ id: item.uid, name: item.displayNameSnapshot })), expense?.payerUid || state.user.uid);
   const checks = $("#participantChecks"); checks.replaceChildren();
   state.members.forEach((member) => {
@@ -216,7 +281,8 @@ function updateSplitPreview() { const selected = document.querySelectorAll("[nam
 function openExpenseDetail(expense) {
   state.selectedExpense = expense;
   const participants = expense.participantUids.map(nameOf).map(esc).join(", ");
-  $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + esc(expense.categoryNameSnapshot) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Pagó</dt><dd>' + esc(expense.payerNameSnapshot) + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
+  const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
+  $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + category.emoji + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Pagó</dt><dd>' + esc(expense.payerNameSnapshot) + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
   dialogs.expenseDetailModal.showModal();
 }
 function openSettlementModal(suggestion) {
@@ -231,6 +297,8 @@ async function openInviteModal() {
 
 on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true; const button = $("#googleLoginButton"); setBusy(button, true, "Continuar con Google"); try { await signInWithGoogle(); } catch (exception) { error($("#authError"), exception, "No se pudo iniciar sesión."); setBusy(button, false, "Continuar con Google"); } });
 on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal);
+on($("#newCategoryButton"), "click", () => openCategoryModal());
+on($("#emojiPickerButton"), "click", openEmojiPicker);
 on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
@@ -246,8 +314,22 @@ on($("#countForm"), "submit", async (event) => {
   try { const id = await createCount({ name, user: state.user, defaultCurrency: form.elements.currency.value }); dialogs.countModal.close(); openCount(id); } catch (exception) { error($("#countError"), exception, "No pudimos crear el Count."); } finally { setBusy(button, false, "Crear Count"); }
 });
 on($("#categoryForm"), "submit", async (event) => {
-  event.preventDefault(); const input = event.currentTarget.elements.name; const button = event.submitter; if (!input.value.trim()) return;
-  setBusy(button, true, "Agregar"); try { await createCategory(input.value, state.user); input.value = ""; } catch (exception) { alert("No pudimos crear la categoría."); console.error(exception); } finally { setBusy(button, false, "Agregar"); }
+  event.preventDefault();
+  const form = event.currentTarget; const button = $("#saveCategoryButton"); const isEditing = Boolean(state.categoryEditing);
+  $("#categoryError").hidden = true;
+  setBusy(button, true, "Guardar");
+  try {
+    if (isEditing) {
+      await updateCategory({ category: state.categoryEditing, name: form.elements.name.value, emoji: state.categoryEmoji, actor: state.user });
+      showToast("✓ Categoría actualizada");
+    } else {
+      const result = await createCategory({ name: form.elements.name.value, emoji: state.categoryEmoji }, state.user);
+      showToast(result.reactivated ? "✓ Categoría reactivada" : "✓ Categoría creada");
+    }
+    closeEmojiPicker(); dialogs.categoryModal.close();
+  } catch (exception) {
+    error($("#categoryError"), exception, "No pudimos guardar la categoría. Intentá nuevamente.");
+  } finally { setBusy(button, false, "Guardar"); }
 });
 on($("#expenseForm"), "submit", async (event) => {
   event.preventDefault(); const form = event.currentTarget; const participants = [...form.querySelectorAll("[name='participant']:checked")].map((input) => input.value); const amountMinor = parseMoney(form.elements.amount.value); const button = $("#saveExpenseButton"); $("#expenseError").hidden = true;

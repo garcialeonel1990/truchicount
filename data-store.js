@@ -71,25 +71,95 @@ export const watchCount = (countId, onChange, onError) => onSnapshot(doc(db, "co
 export const watchMembers = (countId, onChange, onError) => onSnapshot(query(collection(db, "memberships"), where("countId", "==", countId), where("status", "==", "active")), (snap) => onChange(snap.docs.map(toItem)), onError);
 export const watchExpenses = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "expenses"), (snap) => onChange(snap.docs.map(toItem)), onError);
 export const watchSettlements = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "settlements"), (snap) => onChange(snap.docs.map(toItem)), onError);
-export const watchCategories = (onChange, onError) => onSnapshot(collection(db, "categories"), (snap) => onChange(snap.docs.map(toItem).filter((item) => item.status === "active").sort((a, b) => a.name.localeCompare(b.name, "es"))), onError);
+export const watchCategories = (onChange, onError) => onSnapshot(collection(db, "categories"), (snap) => onChange(snap.docs.map(toItem).sort((a, b) => a.name.localeCompare(b.name, "es"))), onError);
 export const watchMerchants = (onChange, onError) => onSnapshot(collection(db, "merchants"), (snap) => onChange(snap.docs.map(toItem).sort((a, b) => a.name.localeCompare(b.name, "es"))), onError);
 
-export async function createCategory(name, actor) {
-  const normalizedName = normalizeText(name);
-  const match = await getDocs(query(collection(db, "categories"), where("normalizedName", "==", normalizedName), limit(1)));
-  if (!match.empty) return toItem(match.docs[0]);
-  const ref = doc(collection(db, "categories"));
+export function normalizeCategoryName(name) {
+  return normalizeText(String(name ?? "").trim().replace(/\s+/g, " "));
+}
+
+function cleanCategoryInput({ name, emoji }) {
+  const cleanName = String(name ?? "").trim().replace(/\s+/g, " ");
+  const cleanEmoji = String(emoji ?? "").trim();
+  if (!cleanName) throw new Error("Ingresá un nombre para la categoría.");
+  if (cleanName.length > 20) throw new Error("El nombre puede tener hasta 20 caracteres.");
+  if (!cleanEmoji) throw new Error("Elegí un emoji.");
+  return { name: cleanName, emoji: cleanEmoji, normalizedName: normalizeCategoryName(cleanName) };
+}
+
+function categoryAuditData(category) {
+  return {
+    name: category.name,
+    emoji: category.emoji,
+    normalizedName: category.normalizedName,
+    status: category.status || "active",
+  };
+}
+
+async function findCategoryByNormalizedName(normalizedName) {
+  const match = await getDocs(query(collection(db, "categories"), where("normalizedName", "==", normalizedName), limit(2)));
+  return match.docs.map(toItem);
+}
+
+export async function createCategory(input, actor) {
+  const values = cleanCategoryInput(input);
+  const matches = await findCategoryByNormalizedName(values.normalizedName);
+  const active = matches.find((item) => item.status === "active");
+  if (active) throw new Error("Ya existe una categoría con ese nombre.");
+
+  const inactive = matches.find((item) => item.status === "inactive");
   const batch = writeBatch(db);
-  const data = { name: name.trim(), normalizedName, status: "active", createdBy: actor.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+  if (inactive) {
+    const ref = doc(db, "categories", inactive.id);
+    const data = { ...values, status: "active", updatedAt: serverTimestamp(), updatedBy: actor.uid, deletedAt: null, deletedBy: null, schemaVersion: 1 };
+    batch.update(ref, data);
+    audit(batch, { entityType: "category", entityId: inactive.id, action: "reactivate", actor, before: categoryAuditData(inactive), after: { ...values, status: "active" } });
+    await batch.commit();
+    return { id: inactive.id, ...values, status: "active", reactivated: true };
+  }
+
+  // A deterministic ID prevents duplicate documents if two clients create
+  // the same normalized name at almost the same time.
+  const ref = doc(db, "categories", "name-" + encodeURIComponent(values.normalizedName));
+  const data = { ...values, status: "active", createdBy: actor.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: actor.uid, deletedAt: null, deletedBy: null, schemaVersion: 1 };
   batch.set(ref, data);
-  audit(batch, { entityType: "category", entityId: ref.id, action: "createCategory", actor, after: { name: data.name } });
+  audit(batch, { entityType: "category", entityId: ref.id, action: "create", actor, after: { ...values, status: "active" } });
   await batch.commit();
   return { id: ref.id, ...data };
 }
 
 export async function ensureDefaultCategories(actor) {
-  const defaults = ["Supermercado", "Salidas", "Transporte", "Servicios", "Hogar", "Comida", "Salud", "Viajes", "Otros"];
-  await Promise.all(defaults.map((name) => createCategory(name, actor)));
+  const anyCategory = await getDocs(query(collection(db, "categories"), limit(1)));
+  if (!anyCategory.empty) return;
+  const defaults = [
+    { name: "Apo", emoji: "🐶" },
+    { name: "Salidas", emoji: "🍔" },
+    { name: "Servicios", emoji: "💡" },
+    { name: "Super", emoji: "🛒" },
+    { name: "Verdulería", emoji: "🥬" },
+  ];
+  await Promise.all(defaults.map((category) => createCategory(category, actor)));
+}
+
+export async function updateCategory({ category, name, emoji, actor }) {
+  const values = cleanCategoryInput({ name, emoji });
+  const matches = await findCategoryByNormalizedName(values.normalizedName);
+  if (matches.some((item) => item.id !== category.id && item.status === "active")) throw new Error("Ya existe una categoría con ese nombre.");
+  const ref = doc(db, "categories", category.id);
+  const batch = writeBatch(db);
+  const data = { ...values, updatedAt: serverTimestamp(), updatedBy: actor.uid };
+  batch.update(ref, data);
+  audit(batch, { entityType: "category", entityId: category.id, action: "update", actor, before: categoryAuditData(category), after: { ...values, status: category.status } });
+  await batch.commit();
+}
+
+export async function softDeleteCategory({ category, actor }) {
+  const ref = doc(db, "categories", category.id);
+  const batch = writeBatch(db);
+  const data = { status: "inactive", deletedAt: serverTimestamp(), deletedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid };
+  batch.update(ref, data);
+  audit(batch, { entityType: "category", entityId: category.id, action: "delete", actor, before: categoryAuditData(category), after: { ...categoryAuditData(category), status: "inactive" } });
+  await batch.commit();
 }
 
 async function upsertMerchant(name, actor) {
