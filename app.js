@@ -306,7 +306,8 @@ function openCountActions() {
   if (!state.count) return;
   const archived = isReadOnly();
   const pending = pendingCurrencies();
-  $("#manageMembersAction").hidden = archived;
+  const manageMembersAction = $("#manageMembersAction");
+  if (manageMembersAction) manageMembersAction.hidden = archived;
   $("#archiveCountAction").hidden = archived;
   $("#unarchiveCountAction").hidden = !archived;
   $("#archiveCountAction").disabled = !archived && pending.length > 0;
