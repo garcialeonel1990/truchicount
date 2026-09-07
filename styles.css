@@ -173,24 +173,12 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 }
 
 .brand-button {
-  position: relative;
-  padding: 7px 30px 7px 0;
+  padding: 7px 0;
   background: transparent;
   color: var(--white);
   font-size: 21px;
   font-weight: 800;
   letter-spacing: -0.07em;
-}
-
-.brand-button::after {
-  position: absolute;
-  right: 3px;
-  bottom: 9px;
-  width: 18px;
-  height: 6px;
-  border-left: 4px solid var(--teal-500);
-  border-right: 4px solid var(--magenta-500);
-  content: "";
 }
 
 .header-controls {
