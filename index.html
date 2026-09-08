@@ -11,7 +11,10 @@
     <link rel="stylesheet" href="/styles.css?v=rf01-rf06" />
   </head>
   <body>
-    <section class="login-screen" id="loginScreen">
+    <section class="login-screen startup-screen" id="startupScreen" aria-live="polite" aria-busy="true">
+      <div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><p class="startup-message" id="startupMessage">Preparando TruchiCount…</p></div>
+    </section>
+    <section class="login-screen" id="loginScreen" hidden>
       <div class="login-card">
         <p class="login-kicker">Truchi<span>Count</span></p>
         <h1>Dividí gastos.<br />Sin cuentas raras.</h1>
@@ -75,7 +78,6 @@
     <dialog class="modal" id="unarchiveConfirmModal"><section class="modal-card"><button class="close-button" type="button" data-close="unarchiveConfirmModal">×</button><h2 id="unarchiveConfirmTitle">¿Desarchivar Count?</h2><p class="section-copy">El Count volverá a permitir modificaciones.</p><p class="form-error" id="unarchiveConfirmError" hidden></p><div class="modal-actions"><button class="secondary-button" type="button" data-close="unarchiveConfirmModal">Cancelar</button><button class="primary-button" id="confirmUnarchiveButton" type="button">Desarchivar</button></div></section></dialog>
     <dialog class="modal" id="accountModal"><form class="modal-card" id="accountForm"><button class="close-button" type="button" data-close="accountModal">×</button><h2>Mi perfil</h2><p class="section-copy" id="accountEmail"></p><label>Alias<input id="accountName" name="displayName" required maxlength="80" /></label><p class="form-error" id="accountError" hidden></p><button class="secondary-button" id="logoutButton" type="button">Cerrar sesión</button><button class="primary-button" type="submit">Guardar</button></form></dialog>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
-    <script src="/app.js?v=rf01-rf06" type="module"></script>
+    <script src="/app.js?v=startup-v1" type="module"></script>
   </body>
 </html>

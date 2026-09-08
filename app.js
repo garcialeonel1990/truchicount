@@ -1,12 +1,20 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
-import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, refreshUserInfo, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
-const unsubscribers = { access: [], app: [], admin: [], detail: [], profiles: [] };
+const state = { user: null, profile: null, accessStarted: false, screen: "startup", generation: 0, profileCreationStarted: false, homeLoading: { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], categoriesReady: false, merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
+const unsubscribers = { access: [], app: [], resources: [], admin: [], detail: [], profiles: [] };
 const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "primaryCurrencyModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const startupMarks = new Set();
+const startupDiagnostics = new URLSearchParams(location.search).has("startupDebug") || (() => { try { return localStorage.getItem("truchicountStartupDebug") === "1"; } catch { return false; } })();
+let categoriesPromise = null;
+let categoryDefaultsRequested = false;
+let merchantsStarted = false;
+let adminUsersStarted = false;
+let emojiPickerPromise = null;
+let maintenanceGeneration = -1;
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -36,23 +44,71 @@ function error(el, exception, fallback) { console.error(exception); el.textConte
 function icon(category) { const name = String(category).toLocaleLowerCase("es"); if (name.includes("super") || name.includes("comida")) return "🛒"; if (name.includes("salida")) return "🍔"; if (name.includes("trans")) return "🚕"; if (name.includes("serv")) return "💡"; if (name.includes("verd")) return "🥬"; if (name.includes("apo") || name.includes("masc")) return "🐶"; return "🧾"; }
 function showToast(message) { const toast = $("#toast"); clearTimeout(state.toastTimer); toast.textContent = message; toast.hidden = false; state.toastTimer = setTimeout(() => { toast.hidden = true; }, 2800); }
 
+function startupMark(name, detail = {}) {
+  if (!startupDiagnostics || startupMarks.has(name)) return;
+  startupMarks.add(name);
+  performance.mark("truchicount:" + name);
+  console.info("[TruchiCount startup]", { name, elapsedMs: Math.round(performance.now()), version: "startup-v1", ...detail });
+}
+function afterPaint(callback) { requestAnimationFrame(() => requestAnimationFrame(callback)); }
+function setStartupState(message) {
+  state.screen = "startup";
+  $("#startupScreen").hidden = false; $("#startupScreen").setAttribute("aria-busy", "true"); $("#startupMessage").textContent = message;
+  $("#loginScreen").hidden = true; $("#pendingAccessScreen").hidden = true; $("#blockedAccessScreen").hidden = true; $("#appShell").hidden = true;
+}
+function scheduleMaintenance(user, generation) {
+  if (maintenanceGeneration === generation) return;
+  maintenanceGeneration = generation;
+  const run = () => {
+    if (state.generation !== generation || state.user?.uid !== user.uid) return;
+    clearCurrentDraft(user).catch(console.error);
+    refreshUserInfo(user).catch((exception) => console.warn("No pudimos actualizar los datos informativos del perfil.", exception));
+  };
+  if ("requestIdleCallback" in window) window.requestIdleCallback(run, { timeout: 3000 }); else setTimeout(run, 0);
+}
+startupMark("navigationStart", { navigationStart: Math.round(performance.timeOrigin) });
+
 completeRedirectSignIn().catch((exception) => error($("#authError"), exception, "No se pudo completar el inicio de sesión."));
-watchAuth(async (user) => {
-  stop("access"); stop("app"); stop("admin"); stop("detail"); stop("profiles");
-  state.user = user; state.profile = null; state.accessStarted = false; state.counts = []; state.count = null; state.homeTab = "active";
-  $("#loginScreen").hidden = Boolean(user); $("#pendingAccessScreen").hidden = true; $("#blockedAccessScreen").hidden = true; $("#appShell").hidden = true;
+watchAuth((user) => {
+  stop("access"); stop("app"); stop("resources"); stop("admin"); stop("detail"); stop("profiles");
+  Object.values(dialogs).forEach((dialog) => { if (dialog?.open) dialog.close(); });
+  document.querySelectorAll("form").forEach((form) => form.reset());
+  state.generation += 1;
+  state.user = user; state.profile = null; state.accessStarted = false; state.profileCreationStarted = false; state.categories = []; state.categoriesReady = false; state.merchants = []; state.counts = []; state.count = null; state.homeTab = "active"; state.homeLoading = { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }; categoriesPromise = null; categoryDefaultsRequested = false; merchantsStarted = false; adminUsersStarted = false;
   const token = inviteToken(); if (token) savePendingInvite(token);
-  if (!user) return;
-  try {
-    await ensureUser(user);
-    watch("access", watchUser(user.uid, handleAccessProfile, (exception) => error($("#authError"), exception, "No pudimos verificar tu acceso.")));
-  } catch (exception) { error($("#authError"), exception, "No pudimos preparar tu cuenta."); }
+  startupMark("authResolved", { signedIn: Boolean(user) });
+  if (!user) {
+    state.screen = "login"; $("#startupScreen").hidden = true; $("#loginScreen").hidden = false; $("#pendingAccessScreen").hidden = true; $("#blockedAccessScreen").hidden = true; $("#appShell").hidden = true;
+    return;
+  }
+  const generation = state.generation;
+  setStartupState("Verificando tu acceso…");
+  watch("access", watchUser(user.uid, (profile, metadata) => handleAccessProfile(profile, metadata, generation), (exception) => handleAccessFailure(exception, generation)));
 });
 
-function handleAccessProfile(profile) {
+function handleAccessFailure(exception, generation) {
+  if (state.generation !== generation) return;
+  startupMark("startupFailed", { stage: "access" });
+  setStartupState("No pudimos verificar tu acceso.");
+  const message = $("#startupMessage"); message.textContent = "No pudimos verificar tu acceso. Recargá para reintentar.";
+  console.error(exception);
+}
+
+function handleAccessProfile(profile, metadata = {}, generation = state.generation) {
+  if (state.generation !== generation) return;
+  // A cached profile is useful only after its server response confirms it.
+  if (metadata.fromCache) return;
+  if (!profile) {
+    if (state.profileCreationStarted) return;
+    state.profileCreationStarted = true;
+    ensureUser(state.user).catch((exception) => handleAccessFailure(exception, generation));
+    return;
+  }
   state.profile = profile;
   const status = profile?.accessStatus || "pending";
-  const approved = status === "approved" || isAdmin();
+  const approved = status === "approved";
+  startupMark("accessVerified", { status });
+  $("#startupScreen").hidden = true; $("#startupScreen").setAttribute("aria-busy", "false");
   $("#loginScreen").hidden = true;
   $("#pendingAccessScreen").hidden = approved || status === "blocked";
   $("#blockedAccessScreen").hidden = approved || status !== "blocked";
@@ -61,21 +117,70 @@ function handleAccessProfile(profile) {
     stop("app"); stop("admin"); stop("detail"); stop("profiles"); state.accessStarted = false;
     return;
   }
-  if (state.accessStarted) { renderHeader(); renderSettings(); return; }
+  if (state.accessStarted) { renderHeader(); if (state.screen === "settings") renderSettings(); return; }
   state.accessStarted = true;
-  ensureDefaultCategories(state.user).catch(console.error);
-  clearCurrentDraft(state.user).catch(console.error);
-  startAppWatches();
+  startAppWatches(generation);
   const token = pendingInviteToken();
   if (token) acceptInvite(token);
   else showScreen("home");
 }
 
-function startAppWatches() {
-  watch("app", watchCategories((items) => { state.categories = items; renderSettings(); if (state.count) renderDetail(); }, console.error));
-  watch("app", watchMerchants((items) => { state.merchants = items; renderMerchantOptions(); }, console.error));
-  watch("app", watchCounts(state.user.uid, (items) => { state.counts = items; renderHome(); }, console.error));
-  if (isAdmin()) watch("admin", watchAccessUsers((users) => { state.accessUsers = users; renderSettings(); }, console.error));
+function startAppWatches(generation) {
+  watch("app", watchCounts(state.user.uid, (items, loading) => {
+    if (state.generation !== generation) return;
+    state.counts = items; state.homeLoading = { ...loading, failed: false };
+    if (loading.membershipsReady) startupMark("membershipsReady", { count: items.length });
+    renderHome();
+  }, (exception, context) => {
+    if (state.generation !== generation) return;
+    console.error(exception); state.homeLoading.failed = context?.scope !== "count";
+    if (state.homeLoading.failed) startupMark("startupFailed", { stage: "memberships" });
+    renderHome();
+  }));
+}
+function ensureCategories() {
+  if (state.categoriesReady) return Promise.resolve(state.categories);
+  if (categoriesPromise) return categoriesPromise;
+  const generation = state.generation;
+  categoriesPromise = new Promise((resolve, reject) => {
+    watch("resources", watchCategories(async (items, metadata) => {
+      if (state.generation !== generation) return;
+      state.categories = items;
+      if (!metadata.fromCache) {
+        try {
+          if (!items.length && !categoryDefaultsRequested) {
+            categoryDefaultsRequested = true;
+            await ensureDefaultCategories(state.user);
+            return;
+          }
+          state.categoriesReady = true;
+          resolve(state.categories);
+        } catch (exception) { reject(exception); }
+      }
+      if (state.screen === "settings") renderSettings();
+      if (state.count) renderDetail();
+    }, reject));
+  });
+  return categoriesPromise;
+}
+function ensureMerchants() {
+  if (merchantsStarted) return;
+  merchantsStarted = true;
+  const generation = state.generation;
+  watch("resources", watchMerchants((items) => {
+    if (state.generation !== generation) return;
+    state.merchants = items; renderMerchantOptions();
+  }, console.error));
+}
+function ensureAdminUsers() {
+  if (!isAdmin() || adminUsersStarted) return;
+  adminUsersStarted = true;
+  const generation = state.generation;
+  watch("admin", watchAccessUsers((users) => {
+    if (state.generation !== generation) return;
+    state.accessUsers = users;
+    if (state.screen === "settings") renderSettings();
+  }, console.error));
 }
 function inviteToken() {
   const queryToken = new URLSearchParams(location.search).get("join");
@@ -126,11 +231,12 @@ function renderHeader() {
   $("#accountButton").textContent = name.split(/\s+/).filter(Boolean).slice(0, 2).map((piece) => piece[0]).join("").toUpperCase();
 }
 function showScreen(name) {
+  state.screen = name;
   $("#homeScreen").hidden = name !== "home";
   $("#detailScreen").hidden = name !== "detail";
   $("#settingsScreen").hidden = name !== "settings";
   if (name === "home") { stop("detail"); stop("profiles"); state.count = null; renderHome(); }
-  if (name === "settings") renderSettings();
+  if (name === "settings") { ensureCategories().catch(console.error); ensureAdminUsers(); renderSettings(); }
 }
 
 function renderHome() {
@@ -140,11 +246,28 @@ function renderHome() {
   $("#newCountButton").hidden = state.homeTab === "archived";
   const list = $("#countList"); list.replaceChildren();
   const counts = state.counts.filter((count) => (count.status || "active") === state.homeTab);
+  if (state.homeLoading.failed) {
+    list.innerHTML = '<section class="empty-state"><strong>No pudimos cargar tus Counts.</strong><span>Revisá tu conexión y recargá para reintentar.</span></section>';
+    return;
+  }
+  if (!state.homeLoading.membershipsReady && !counts.length) {
+    list.innerHTML = '<section class="empty-state home-loading" aria-busy="true"><strong>Cargando tus Counts…</strong><span>Estamos verificando tu información.</span></section>';
+    return;
+  }
   if (!counts.length) {
+    if (state.homeLoading.pendingCountIds.length) {
+      list.innerHTML = '<section class="empty-state home-loading" aria-busy="true"><strong>Cargando tus Counts…</strong><span>Estamos preparando tu lista.</span></section>';
+      return;
+    }
+    if (state.homeLoading.countErrors.length) {
+      list.innerHTML = '<section class="empty-state"><strong>No pudimos cargar algunos Counts.</strong><span>Recargá para reintentar.</span></section>';
+      return;
+    }
     list.innerHTML = state.homeTab === "archived"
       ? '<section class="empty-state"><strong>No tenés Counts archivados todavía.</strong><span>Cuando termines de usar un Count y su balance esté en cero, vas a poder archivarlo.</span></section>'
       : '<section class="empty-state"><strong>Todavía no tenés ningún Count.</strong><span>Creá uno para empezar a dividir gastos.</span><button class="primary-button" id="emptyCreateButton" type="button">Crear Count</button></section>';
     on($("#emptyCreateButton"), "click", openCountModal);
+    if (state.homeLoading.membershipsReady) afterPaint(() => { startupMark("homeReady", { count: 0 }); scheduleMaintenance(state.user, state.generation); });
     return;
   }
   counts.forEach((count) => {
@@ -153,15 +276,27 @@ function renderHome() {
     card.innerHTML = '<span><strong>' + esc(count.name) + '</strong><small>' + (count.status === "archived" ? '<span class="archive-badge">Archivado</span>' : "Count compartido") + '</small></span><span class="chevron">›</span>';
     on(card, "click", () => openCount(count.id)); list.append(card);
   });
+  if (state.homeLoading.pendingCountIds.length || state.homeLoading.countErrors.length) {
+    const status = document.createElement("p"); status.className = "form-note";
+    status.textContent = state.homeLoading.countErrors.length ? "Algunos Counts no pudieron cargarse. Recargá para reintentar." : "Cargando más Counts…";
+    list.append(status);
+  }
+  if (!startupMarks.has("firstCountVisible")) afterPaint(() => startupMark("firstCountVisible", { count: counts.length }));
+  if (state.homeLoading.membershipsReady && !state.homeLoading.pendingCountIds.length && !state.homeLoading.countErrors.length) {
+    afterPaint(() => { startupMark("homeReady", { count: state.counts.length }); scheduleMaintenance(state.user, state.generation); });
+  }
 }
 
 function openCount(id) {
   stop("detail"); stop("profiles"); state.memberProfiles = {};
+  const generation = state.generation;
+  const currentSession = () => state.generation === generation && Boolean(state.user);
   state.count = state.counts.find((count) => count.id === id) || { id: id, name: "Cargando…" };
   state.members = []; state.expenses = []; state.settlements = [];
   state.detailLoading = { count: false, members: false, expenses: false, settlements: false, failed: false };
-  watch("detail", watchCount(id, (count) => { state.count = count; state.detailLoading.count = true; renderDetail(); }, detailError));
+  watch("detail", watchCount(id, (count) => { if (!currentSession()) return; state.count = count; state.detailLoading.count = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
   watch("detail", watchMembers(id, (members) => {
+    if (!currentSession()) return;
     state.members = members;
     state.detailLoading.members = true;
     refreshMemberProfiles();
@@ -169,16 +304,20 @@ function openCount(id) {
     // The member manager may remain open underneath the manual-member form.
     // Keep it synchronized with the same live data as the Count detail.
     if (dialogs.memberModal.open) renderMemberList();
-  }, detailError));
-  watch("detail", watchExpenses(id, (items) => { state.expenses = items; state.detailLoading.expenses = true; renderDetail(); }, detailError));
-  watch("detail", watchSettlements(id, (items) => { state.settlements = items; state.detailLoading.settlements = true; renderDetail(); }, detailError));
+  }, (exception) => { if (currentSession()) detailError(exception); }));
+  watch("detail", watchExpenses(id, (items) => { if (!currentSession()) return; state.expenses = items; state.detailLoading.expenses = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
+  watch("detail", watchSettlements(id, (items) => { if (!currentSession()) return; state.settlements = items; state.detailLoading.settlements = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
   showScreen("detail");
 }
 function refreshMemberProfiles() {
   stop("profiles");
   const profiles = {};
+  const generation = state.generation;
   state.members.filter((member) => member.type === "registered" && member.userId).forEach((member) => {
-    watch("profiles", watchUser(member.userId, (profile) => { state.memberProfiles[member.userId] = profile || {}; renderDetail(); }, detailError));
+    watch("profiles", watchUser(member.userId, (profile) => {
+      if (state.generation !== generation || !state.user) return;
+      state.memberProfiles[member.userId] = profile || {}; renderDetail();
+    }, (exception) => { if (state.generation === generation && state.user) detailError(exception); }));
     profiles[member.userId] = state.memberProfiles[member.userId] || {};
   });
   state.memberProfiles = profiles;
@@ -285,6 +424,11 @@ function renderSettings() {
     currencies.append(row);
   });
   const categories = $("#categoryList"); categories.replaceChildren();
+  if (!state.categoriesReady) {
+    categories.innerHTML = '<div class="empty-category-row">Cargando categorías…</div>';
+    renderAdmin();
+    return;
+  }
   const active = activeCategories();
   if (!active.length) {
     categories.innerHTML = '<div class="empty-category-row">No hay categorías activas.</div>';
@@ -363,8 +507,20 @@ function closeEmojiPicker() {
   document.querySelector(".emoji-picker-popover")?.remove();
 }
 
-function openEmojiPicker() {
+async function openEmojiPicker() {
   closeEmojiPicker();
+  const trigger = $("#emojiPickerButton");
+  trigger.disabled = true;
+  try {
+    emojiPickerPromise ??= import("https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js");
+    await emojiPickerPromise;
+    await customElements.whenDefined("emoji-picker");
+  } catch (exception) {
+    emojiPickerPromise = null;
+    showToast("No pudimos cargar el selector de emojis. Reintentá.");
+    console.error(exception);
+    return;
+  } finally { trigger.disabled = false; }
   const popover = document.createElement("div");
   popover.className = "emoji-picker-popover";
   const picker = document.createElement("emoji-picker");
@@ -491,7 +647,14 @@ async function finalizeCountWizard() {
 }
 function openExpenseModal(expense) {
   if (isReadOnly()) return;
-  if (!activeMembers().length || !activeCategories().length) return;
+  if (!activeMembers().length) return;
+  if (!state.categoriesReady) {
+    showToast("Cargando categorías…");
+    ensureCategories().then(() => openExpenseModal(expense)).catch(() => showToast("No pudimos cargar las categorías."));
+    return;
+  }
+  if (!activeCategories().length) { showToast("Creá una categoría antes de cargar un gasto."); return; }
+  ensureMerchants();
   state.editing = expense || null; $("#expenseForm").reset(); $("#expenseError").hidden = true;
   $("#expenseModalTitle").textContent = expense ? "Editar gasto" : "Nuevo gasto";
   const primaryCurrency = state.count?.primaryCurrency || state.count?.defaultCurrency || DEFAULT_CURRENCY;

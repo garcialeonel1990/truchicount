@@ -44,11 +44,9 @@ export async function ensureUser(user) {
     updatedAt: serverTimestamp(),
     lastLoginAttemptAt: serverTimestamp(),
   };
-  if (current.exists()) {
-    const legacyAlias = current.data().alias || current.data().displayName;
-    const accessStatus = isAdmin ? "approved" : current.data().accessStatus || "pending";
-    return setDoc(ref, { ...shared, alias: legacyAlias || null, accessStatus, isAdmin, ...(accessStatus === "pending" ? { requestedAt: current.data().requestedAt || serverTimestamp() } : {}) }, { merge: true });
-  }
+  // Existing profiles are verified by the live listener before Home starts.
+  // Never turn that verification into a blocking informational write.
+  if (current.exists()) return false;
   const batch = writeBatch(db);
   const accessStatus = isAdmin ? "approved" : "pending";
   batch.set(ref, {
@@ -62,7 +60,22 @@ export async function ensureUser(user) {
   return batch.commit();
 }
 
-export const watchUser = (uid, onChange, onError) => onSnapshot(doc(db, "users", uid), (snap) => onChange(snap.exists() ? toItem(snap) : null), onError);
+export async function refreshUserInfo(user) {
+  const ref = doc(db, "users", user.uid);
+  return setDoc(ref, {
+    googleDisplayName: user.displayName || user.email?.split("@")[0] || "Usuario",
+    email: user.email || "",
+    updatedAt: serverTimestamp(),
+    lastLoginAttemptAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export const watchUser = (uid, onChange, onError) => onSnapshot(
+  doc(db, "users", uid),
+  { includeMetadataChanges: true },
+  (snap) => onChange(snap.exists() ? toItem(snap) : null, { fromCache: snap.metadata.fromCache, exists: snap.exists() }),
+  onError
+);
 export const watchAccessUsers = (onChange, onError) => onSnapshot(collection(db, "users"), (snap) => onChange(snap.docs.map(toItem)), onError);
 
 export async function updateUserAccess({ target, status, actor }) {
@@ -81,27 +94,52 @@ export async function updateUserAccess({ target, status, actor }) {
 }
 
 export function watchCounts(uid, onChange, onError) {
-  let stopCountWatches = [];
-  let counts = new Map();
-  const publish = () => onChange([...counts.values()].sort((a, b) => {
+  const countWatches = new Map();
+  const countStates = new Map();
+  const counts = new Map();
+  let membershipsReady = false;
+  let frame = null;
+  const sortedCounts = () => [...counts.values()].sort((a, b) => {
     if (a.status !== b.status) return a.status === "active" ? -1 : 1;
     if (a.status === "archived") return (dateValue(b.lastArchivedAt) || 0) - (dateValue(a.lastArchivedAt) || 0);
     return (dateValue(b.updatedAt) || 0) - (dateValue(a.updatedAt) || 0);
-  }));
+  });
+  const publish = () => {
+    if (frame !== null) return;
+    const commit = () => {
+      frame = null;
+      const pendingCountIds = [...countStates.entries()].filter(([, state]) => !state.resolved && !state.error).map(([id]) => id);
+      onChange(sortedCounts(), { membershipsReady, pendingCountIds, countErrors: [...countStates.entries()].filter(([, state]) => state.error).map(([id]) => id) });
+    };
+    frame = typeof requestAnimationFrame === "function" ? requestAnimationFrame(commit) : setTimeout(commit, 0);
+  };
 
   const stopMemberships = onSnapshot(
     query(collection(db, "memberships"), where("uid", "==", uid), where("status", "==", "active")),
+    { includeMetadataChanges: true },
     (snapshot) => {
-      stopCountWatches.forEach((stop) => stop());
-      stopCountWatches = [];
-      counts = new Map();
-      snapshot.docs.map(toItem).forEach((membership) => {
-        const stopCount = onSnapshot(doc(db, "counts", membership.countId), (countSnapshot) => {
-          if (countSnapshot.exists()) counts.set(countSnapshot.id, { ...toItem(countSnapshot), status: countSnapshot.data().status || "active" });
-          else counts.delete(membership.countId);
+      if (!snapshot.metadata.fromCache) membershipsReady = true;
+      const nextIds = new Set(snapshot.docs.map((item) => item.data().countId));
+      countWatches.forEach((stop, countId) => {
+        if (nextIds.has(countId)) return;
+        stop(); countWatches.delete(countId); countStates.delete(countId); counts.delete(countId);
+      });
+      nextIds.forEach((countId) => {
+        if (countWatches.has(countId)) return;
+        countStates.set(countId, { resolved: false, error: false });
+        const stopCount = onSnapshot(doc(db, "counts", countId), { includeMetadataChanges: true }, (countSnapshot) => {
+          const countState = countStates.get(countId);
+          if (!countState) return;
+          if (!countSnapshot.metadata.fromCache) countState.resolved = true;
+          if (countSnapshot.exists()) counts.set(countId, { ...toItem(countSnapshot), status: countSnapshot.data().status || "active" });
+          else counts.delete(countId);
           publish();
-        }, onError);
-        stopCountWatches.push(stopCount);
+        }, (error) => {
+          const countState = countStates.get(countId);
+          if (countState) { countState.error = true; publish(); }
+          onError(error, { scope: "count", countId });
+        });
+        countWatches.set(countId, stopCount);
       });
       publish();
     },
@@ -110,7 +148,11 @@ export function watchCounts(uid, onChange, onError) {
 
   return () => {
     stopMemberships();
-    stopCountWatches.forEach((stop) => stop());
+    countWatches.forEach((stop) => stop());
+    if (frame !== null) {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+      else clearTimeout(frame);
+    }
   };
 }
 
@@ -329,7 +371,7 @@ export const watchCount = (countId, onChange, onError) => onSnapshot(doc(db, "co
 export const watchMembers = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "members"), (snap) => onChange(snap.docs.map(toItem)), onError);
 export const watchExpenses = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "expenses"), (snap) => onChange(snap.docs.map(toItem)), onError);
 export const watchSettlements = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "settlements"), (snap) => onChange(snap.docs.map(toItem)), onError);
-export const watchCategories = (onChange, onError) => onSnapshot(collection(db, "categories"), (snap) => onChange(snap.docs.map(toItem).sort((a, b) => a.name.localeCompare(b.name, "es"))), onError);
+export const watchCategories = (onChange, onError) => onSnapshot(collection(db, "categories"), { includeMetadataChanges: true }, (snap) => onChange(snap.docs.map(toItem).sort((a, b) => a.name.localeCompare(b.name, "es")), { fromCache: snap.metadata.fromCache }), onError);
 export const watchMerchants = (onChange, onError) => onSnapshot(collection(db, "merchants"), (snap) => onChange(snap.docs.map(toItem).sort((a, b) => a.name.localeCompare(b.name, "es"))), onError);
 
 export function normalizeCategoryName(name) {

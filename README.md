@@ -69,6 +69,12 @@ Las pruebas puras se ejecutan con Node 20 o superior:
 
 La capa confiable de mutaciones críticas indicada en la especificación (Cloud Functions/Emulator, revisión monotónica, idempotencia y auditoría transaccional) todavía no está incorporada. Por lo tanto no hay que desplegar reglas que cierren escrituras directas de gastos o liquidaciones hasta introducir y probar esa capa en un entorno de Firebase separado.
 
+## Arranque optimizado
+
+Home verifica primero Auth, el perfil vigente y las membresías. Categorías, comercios, usuarios de Administración y el selector de emojis se cargan sólo cuando la pantalla o acción los necesita. Los recursos públicos propios usan `Cache-Control: no-cache`: el navegador puede reutilizarlos tras una revalidación, sin servir una versión estable potencialmente incompatible.
+
+Para registrar marcas locales de apertura, abrí la app con `?startupDebug=1`. Las métricas se escriben en la consola del navegador sin enviar información personal ni datos de Counts a un servicio externo.
+
 ## Validación manual
 
 1. Entrá con una cuenta aprobada. Si es nueva, aprobala desde la cuenta administradora.
