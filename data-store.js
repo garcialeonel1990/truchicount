@@ -118,18 +118,193 @@ function dateValue(value) {
   return value?.toMillis ? value.toMillis() : value ? new Date(value).getTime() : 0;
 }
 
-export async function createCount({ name, user, defaultCurrency = DEFAULT_CURRENCY }) {
+export function normalizeCountName(name) {
+  return normalizeText(String(name ?? "").trim().replace(/\s+/g, " "));
+}
+
+function cleanCountName(name) {
+  const cleanName = String(name ?? "").trim().replace(/\s+/g, " ");
+  if (!cleanName) throw new Error("Ingresá un nombre para el Count.");
+  if (cleanName.length > 30) throw new Error("El nombre puede tener hasta 30 caracteres.");
+  return { name: cleanName, normalizedName: normalizeCountName(cleanName) };
+}
+
+function countNameRef(normalizedName) {
+  return doc(db, "countNames", "name-" + encodeURIComponent(normalizedName));
+}
+
+function draftExpiry() {
+  return Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000);
+}
+
+function validCurrency(currency) {
+  if (!CURRENCIES[currency]) throw new Error("Seleccioná una moneda principal.");
+  return currency;
+}
+
+function draftOwner(count, user) {
+  return count.exists() && count.data().status === "draft" && count.data().createdBy === user.uid;
+}
+
+export async function startCountDraft({ user }) {
+  await clearCurrentDraft(user, { includeRecent: true });
   const count = doc(collection(db, "counts"));
   const membership = doc(db, "memberships", `${count.id}_${user.uid}`);
   const member = doc(db, "counts", count.id, "members", `registered_${user.uid}`);
+  const invite = doc(collection(db, "invites"));
   const batch = writeBatch(db);
-  batch.set(count, { name, defaultCurrency, ownerUid: user.uid, status: "active", createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, schemaVersion: 1 });
+  batch.set(count, {
+    name: "", normalizedName: "", status: "draft", primaryCurrency: null,
+    defaultCurrency: null, ownerUid: user.uid, createdBy: user.uid,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: user.uid,
+    draftExpiresAt: draftExpiry(), draftInviteToken: invite.id, hasMovements: false, schemaVersion: 1,
+  });
   batch.set(member, { memberId: member.id, countId: count.id, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
   batch.set(membership, { countId: count.id, uid: user.uid, memberId: member.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: false, createdAt: serverTimestamp() });
-  audit(batch, { entityType: "count", entityId: count.id, countId: count.id, action: "create", actor: user, after: { name, defaultCurrency } });
-  audit(batch, { entityType: "member", entityId: member.id, countId: count.id, action: "createMember", actor: user, after: { type: "registered", userId: user.uid } });
+  batch.set(invite, { countId: count.id, status: "draft", createdBy: user.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null });
+  batch.update(doc(db, "users", user.uid), { draftCountId: count.id, draftExpiresAt: draftExpiry(), updatedAt: serverTimestamp() });
   await batch.commit();
-  return count.id;
+  return { id: count.id, draftInviteToken: invite.id, status: "draft", name: "", normalizedName: "", primaryCurrency: null };
+}
+
+export async function saveDraftName({ countId, name, actor, existingCounts = [] }) {
+  const values = cleanCountName(name);
+  if (existingCounts.some((count) => count.id !== countId && count.status !== "draft" && (count.normalizedName || normalizeCountName(count.name)) === values.normalizedName)) throw new Error("Ya existe un Count con ese nombre.");
+  const countRef = doc(db, "counts", countId);
+  await runTransaction(db, async (transaction) => {
+    const count = await transaction.get(countRef);
+    if (!draftOwner(count, actor)) throw new Error("Este borrador ya no está disponible.");
+    const previousName = count.data().normalizedName || "";
+    const targetRef = countNameRef(values.normalizedName);
+    const reads = [transaction.get(targetRef)];
+    if (previousName && previousName !== values.normalizedName) reads.push(transaction.get(countNameRef(previousName)));
+    const [target, previous] = await Promise.all(reads);
+    if (target.exists() && target.data().countId !== countId) throw new Error("Ya existe un Count con ese nombre.");
+    if (previous && previous.exists() && previous.data().countId === countId) transaction.delete(previous.ref);
+    if (!target.exists()) transaction.set(targetRef, { countId, normalizedName: values.normalizedName, createdAt: serverTimestamp(), createdBy: actor.uid });
+    transaction.update(countRef, { ...values, updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+  });
+  return values;
+}
+
+export async function saveDraftCurrency({ countId, currency, actor }) {
+  validCurrency(currency);
+  const countRef = doc(db, "counts", countId);
+  const count = await getDoc(countRef);
+  if (!draftOwner(count, actor)) throw new Error("Este borrador ya no está disponible.");
+  await updateDoc(countRef, { primaryCurrency: currency, defaultCurrency: currency, updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+}
+
+export async function getDraftMembers(countId) {
+  const members = await getDocs(collection(db, "counts", countId, "members"));
+  return members.docs.map(toItem);
+}
+
+async function assertDraftOwner(countId, actor) {
+  const count = await getDoc(doc(db, "counts", countId));
+  if (!draftOwner(count, actor)) throw new Error("Este borrador ya no está disponible.");
+  return count;
+}
+
+export async function createDraftManualMember({ countId, alias, actor }) {
+  const values = cleanMemberAlias(alias);
+  await assertDraftOwner(countId, actor);
+  const membersRef = collection(db, "counts", countId, "members");
+  const members = (await getDocs(membersRef)).docs.map(toItem);
+  if (await hasActiveMemberAlias(members, values.normalizedAlias)) throw new Error("Ya existe un integrante con ese alias en este Count.");
+  const ref = doc(membersRef);
+  const item = { memberId: ref.id, countId, type: "manual", userId: null, ...values, role: "member", active: true, createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, schemaVersion: 1 };
+  const batch = writeBatch(db);
+  batch.set(ref, item);
+  batch.update(doc(db, "counts", countId), { updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+  await batch.commit();
+  return { id: ref.id, ...values, type: "manual", active: true, role: "member" };
+}
+
+export async function updateDraftManualMember({ countId, member, alias, actor }) {
+  const values = cleanMemberAlias(alias);
+  await assertDraftOwner(countId, actor);
+  const members = await getDraftMembers(countId);
+  if (await hasActiveMemberAlias(members, values.normalizedAlias, member.id)) throw new Error("Ya existe un integrante con ese alias en este Count.");
+  const batch = writeBatch(db);
+  batch.update(doc(db, "counts", countId, "members", member.id), { ...values, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  batch.update(doc(db, "counts", countId), { updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+  await batch.commit();
+  return values;
+}
+
+export async function removeDraftManualMember({ countId, member, actor }) {
+  if (member.type !== "manual") throw new Error("El creador no se puede quitar del borrador.");
+  await assertDraftOwner(countId, actor);
+  const batch = writeBatch(db);
+  batch.delete(doc(db, "counts", countId, "members", member.id));
+  batch.update(doc(db, "counts", countId), { updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+  await batch.commit();
+}
+
+export async function finalizeCountDraft({ countId, actor }) {
+  const countRef = doc(db, "counts", countId);
+  const membersRef = collection(db, "counts", countId, "members");
+  const members = await getDraftMembers(countId);
+  const manualAliases = members.filter((member) => member.type === "manual" && member.active).map((member) => member.normalizedAlias);
+  if (manualAliases.some((alias, index) => !alias || manualAliases.indexOf(alias) !== index)) throw new Error("Revisá los aliases de los integrantes.");
+  return runTransaction(db, async (transaction) => {
+    const count = await transaction.get(countRef);
+    if (!draftOwner(count, actor)) throw new Error("Este borrador ya no está disponible.");
+    const values = cleanCountName(count.data().name);
+    const currency = validCurrency(count.data().primaryCurrency);
+    const inviteRef = doc(db, "invites", count.data().draftInviteToken);
+    const ownerRef = doc(membersRef, `registered_${actor.uid}`);
+    const nameRef = countNameRef(values.normalizedName);
+    const [invite, owner, nameClaim] = await Promise.all([transaction.get(inviteRef), transaction.get(ownerRef), transaction.get(nameRef)]);
+    if (!owner.exists() || !owner.data().active || owner.data().type !== "registered") throw new Error("El creador debe permanecer entre los integrantes.");
+    if (!invite.exists() || invite.data().countId !== countId || invite.data().status !== "draft") throw new Error("No pudimos validar la invitación del borrador.");
+    if (nameClaim.exists() && nameClaim.data().countId !== countId) throw new Error("Ya existe un Count con ese nombre.");
+    if (!nameClaim.exists()) transaction.set(nameRef, { countId, normalizedName: values.normalizedName, createdAt: serverTimestamp(), createdBy: actor.uid });
+    transaction.update(countRef, { ...values, primaryCurrency: currency, defaultCurrency: currency, status: "active", activatedAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: null });
+    transaction.update(inviteRef, { status: "active", activatedAt: serverTimestamp() });
+    transaction.update(doc(db, "users", actor.uid), { draftCountId: null, draftExpiresAt: null, updatedAt: serverTimestamp() });
+    transaction.set(auditRef(), { entityType: "count", entityId: countId, countId, action: "createCount", actorUid: actor.uid, actorNameSnapshot: actor.displayName || actor.email || "Usuario", after: { name: values.name, primaryCurrency: currency, memberCount: members.filter((member) => member.active).length }, createdAt: serverTimestamp() });
+    return countId;
+  });
+}
+
+export async function clearCurrentDraft(user, { includeRecent = false } = {}) {
+  const profile = await getDoc(doc(db, "users", user.uid));
+  const countId = profile.exists() ? profile.data().draftCountId : null;
+  if (!countId) return false;
+  const count = await getDoc(doc(db, "counts", countId));
+  if (!draftOwner(count, user)) {
+    await updateDoc(doc(db, "users", user.uid), { draftCountId: null, draftExpiresAt: null, updatedAt: serverTimestamp() });
+    return false;
+  }
+  const expired = dateValue(count.data().draftExpiresAt) <= Date.now();
+  if (!includeRecent && !expired) return false;
+  const members = await getDocs(collection(db, "counts", countId, "members"));
+  const nameClaim = count.data().normalizedName ? await getDoc(countNameRef(count.data().normalizedName)) : null;
+  const batch = writeBatch(db);
+  members.docs.forEach((member) => batch.delete(member.ref));
+  batch.delete(doc(db, "memberships", `${countId}_${user.uid}`));
+  if (count.data().draftInviteToken) batch.delete(doc(db, "invites", count.data().draftInviteToken));
+  if (nameClaim?.exists() && nameClaim.data().countId === countId) batch.delete(nameClaim.ref);
+  batch.delete(count.ref);
+  batch.update(doc(db, "users", user.uid), { draftCountId: null, draftExpiresAt: null, updatedAt: serverTimestamp() });
+  await batch.commit();
+  return true;
+}
+
+export async function updateCountPrimaryCurrency({ countId, currency, actor }) {
+  validCurrency(currency);
+  const countRef = doc(db, "counts", countId);
+  const [count, expenses, settlements] = await Promise.all([
+    getDoc(countRef), getDocs(query(collection(db, "counts", countId, "expenses"), limit(1))), getDocs(query(collection(db, "counts", countId, "settlements"), limit(1))),
+  ]);
+  if (!count.exists() || count.data().status !== "active") throw new Error("Este Count no está disponible.");
+  if (expenses.size || settlements.size || count.data().hasMovements) throw new Error("La moneda principal no se puede cambiar después del primer movimiento.");
+  const batch = writeBatch(db);
+  batch.update(countRef, { primaryCurrency: currency, defaultCurrency: currency, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  audit(batch, { entityType: "count", entityId: countId, countId, action: "updatePrimaryCurrency", actor, before: { primaryCurrency: count.data().primaryCurrency || count.data().defaultCurrency || null }, after: { primaryCurrency: currency } });
+  await batch.commit();
 }
 
 export const watchCount = (countId, onChange, onError) => onSnapshot(doc(db, "counts", countId), (snap) => onChange(snap.exists() ? toItem(snap) : null), onError);
@@ -267,6 +442,7 @@ export async function saveExpense({ countId, form, members, categories, actor, e
     audit(batch, { entityType: "expense", entityId: ref.id, countId, action: "update", actor, before, after: data });
   } else {
     batch.set(ref, { ...data, createdAt: serverTimestamp(), createdBy: actor.uid, deletedAt: null, deletedBy: null });
+    batch.update(doc(db, "counts", countId), { hasMovements: true, updatedAt: serverTimestamp(), updatedBy: actor.uid });
     audit(batch, { entityType: "expense", entityId: ref.id, countId, action: "create", actor, after: data });
   }
   await batch.commit();
@@ -288,6 +464,7 @@ export async function createSettlement({ countId, suggestion, members, actor }) 
   const data = { countId, fromMemberId: suggestion.fromMemberId, toMemberId: suggestion.toMemberId, amountMinor: suggestion.amountMinor, currency: suggestion.currency, status: "active", createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, reversedAt: null, reversedBy: null, schemaVersion: 1 };
   const batch = writeBatch(db);
   batch.set(ref, data);
+  batch.update(doc(db, "counts", countId), { hasMovements: true, updatedAt: serverTimestamp(), updatedBy: actor.uid });
   audit(batch, { entityType: "settlement", entityId: ref.id, countId, action: "settle", actor, after: data });
   await batch.commit();
 }
@@ -306,7 +483,7 @@ async function hasActiveMemberAlias(members, normalizedAlias, exceptMemberId = n
   const registered = members.filter((member) => member.active && member.type === "registered" && member.id !== exceptMemberId);
   const profiles = await Promise.all(registered.map((member) => getDoc(doc(db, "users", member.userId))));
   return members.some((member) => member.active && member.id !== exceptMemberId && member.type === "manual" && member.normalizedAlias === normalizedAlias)
-    || profiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().displayName) === normalizedAlias);
+    || profiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().googleDisplayName || profile.data().displayName) === normalizedAlias);
 }
 
 export async function createManualMember({ countId, alias, actor }) {
@@ -503,10 +680,10 @@ export async function joinInvite(token, user) {
   const inviteRef = doc(db, "invites", token);
   return runTransaction(db, async (transaction) => {
     const invite = await transaction.get(inviteRef);
-    if (!invite.exists() || invite.data().status !== "active") throw new Error("Esta invitación no existe o ya no está activa.");
+    if (!invite.exists() || invite.data().status === "invalid") throw new Error("Esta invitación no existe o ya no está activa.");
+    if (invite.data().status === "draft") throw new Error("Este Count todavía se está configurando. Volvé a intentar cuando esté activo.");
+    if (invite.data().status !== "active") throw new Error("Esta invitación no existe o ya no está activa.");
     const countId = invite.data().countId;
-    const count = await transaction.get(doc(db, "counts", countId));
-    if (!count.exists() || count.data().status === "archived") throw new Error("Este Count está archivado y no acepta nuevos miembros.");
     const membershipRef = doc(db, "memberships", `${countId}_${user.uid}`);
     const memberRef = doc(db, "counts", countId, "members", `registered_${user.uid}`);
     const [membership, member] = await Promise.all([transaction.get(membershipRef), transaction.get(memberRef)]);
@@ -538,7 +715,7 @@ export async function updateUserSettings(uid, data) {
     const conflict = memberLists.some((snapshot) => snapshot.docs.some((member) => {
       const item = member.data();
       return item.active && item.type === "manual" && item.normalizedAlias === normalizedAlias;
-    })) || otherProfiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().displayName) === normalizedAlias);
+  })) || otherProfiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().googleDisplayName || profile.data().displayName) === normalizedAlias);
     if (conflict) throw new Error("Ya existe un integrante con ese alias en uno de tus Counts activos.");
   }
   return updateDoc(doc(db, "users", uid), { ...data, updatedAt: serverTimestamp() });

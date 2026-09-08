@@ -1,12 +1,12 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
-import { ADMIN_UID, archiveCount, createCategory, createCount, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, removeCountMember, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { ADMIN_UID, archiveCount, clearCurrentDraft, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
+const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
 const unsubscribers = { access: [], app: [], admin: [], detail: [], profiles: [] };
-const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "memberChoiceModal", "memberActionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "memberChoiceModal", "memberActionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "primaryCurrencyModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -15,7 +15,7 @@ function esc(value) { return String(value || "").replace(/&/g, "&amp;").replace(
 function dateFrom(value) { return value && value.toDate ? value.toDate() : value ? new Date(value) : null; }
 function dateISO(value) { const date = dateFrom(value); return date ? date.toISOString().slice(0, 10) : ""; }
 function prettyDate(value) { const date = dateFrom(value); return date ? new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(date) : "Sin fecha"; }
-function memberName(member) { return member?.type === "manual" ? member.alias : state.memberProfiles[member?.userId]?.alias || member?.aliasSnapshot || "Integrante"; }
+function memberName(member) { const profile = state.memberProfiles[member?.userId]; return member?.type === "manual" ? member.alias : profile?.alias || profile?.googleDisplayName || profile?.displayName || member?.aliasSnapshot || "Integrante"; }
 function nameOf(memberId) { return memberName(state.members.find((member) => member.id === memberId)); }
 function activeMembers() { return state.members.filter((member) => member.active); }
 function activeExpenses() { return state.expenses.filter((expense) => expense.status === "active"); }
@@ -64,6 +64,7 @@ function handleAccessProfile(profile) {
   if (state.accessStarted) { renderHeader(); renderSettings(); return; }
   state.accessStarted = true;
   ensureDefaultCategories(state.user).catch(console.error);
+  clearCurrentDraft(state.user).catch(console.error);
   startAppWatches();
   const token = pendingInviteToken();
   if (token) acceptInvite(token);
@@ -90,13 +91,15 @@ async function acceptInvite(token) {
   } catch (exception) {
     history.replaceState({}, "", "/");
     error($("#authError"), exception, "No pudimos usar esta invitación.");
+    showScreen("home");
+    showToast(exception?.message || "No pudimos usar esta invitación.");
   }
 }
 function savePendingInvite(token) { try { sessionStorage.setItem("truchicountPendingInvite", token); } catch {} }
 function pendingInviteToken() { try { return sessionStorage.getItem("truchicountPendingInvite"); } catch { return null; } }
 function clearPendingInvite() { try { sessionStorage.removeItem("truchicountPendingInvite"); } catch {} }
 function renderHeader() {
-  const name = state.profile?.alias || state.profile?.displayName || state.user?.displayName || state.user?.email || "Usuario";
+  const name = state.profile?.alias || state.profile?.googleDisplayName || state.profile?.displayName || state.user?.displayName || state.user?.email || "Usuario";
   $("#welcomeText").textContent = "Hola, " + name.split(" ")[0];
   $("#accountButton").textContent = name.split(/\s+/).filter(Boolean).slice(0, 2).map((piece) => piece[0]).join("").toUpperCase();
 }
@@ -335,19 +338,114 @@ async function deleteCategory(category) {
   }
 }
 
-function openCountModal() {
-  $("#countForm").reset(); $("#countError").hidden = true;
-  const enabled = state.profile?.enabledCurrencies || [DEFAULT_CURRENCY];
-  putOptions($("#countCurrency"), enabled.map((code) => ({ id: code, name: code + " · " + CURRENCIES[code].name })), state.profile?.defaultCurrency || DEFAULT_CURRENCY);
-  dialogs.countModal.showModal();
+function draftMemberName(member) {
+  return member.type === "manual" ? member.alias : state.profile?.alias || state.profile?.googleDisplayName || state.user?.displayName || state.user?.email || "Vos";
+}
+function draftInviteUrl() {
+  const url = new URL(location.href); url.pathname = "/j/" + state.draft.draftInviteToken; url.search = ""; url.hash = ""; return url.toString();
+}
+function renderCurrencyChoices(container, name, selected) {
+  container.replaceChildren();
+  Object.values(CURRENCIES).forEach((currency) => {
+    const row = document.createElement("label"); row.className = "currency-choice";
+    row.innerHTML = '<input type="radio" name="' + name + '" value="' + currency.code + '" ' + (currency.code === selected ? "checked" : "") + ' /><span><strong>' + currency.code + '</strong><small>' + esc(currency.name) + '</small></span>';
+    container.append(row);
+  });
+}
+function renderDraftMembers() {
+  const list = $("#draftMemberList"); list.replaceChildren();
+  state.draftMembers.filter((member) => member.active).forEach((member) => {
+    const row = document.createElement("article"); row.className = "member-row";
+    const name = draftMemberName(member);
+    row.innerHTML = '<span class="member-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + (member.type === "manual" ? "Manual" : "Creador") + '</small></span>';
+    if (member.type === "manual") {
+      const actions = document.createElement("span"); actions.className = "draft-member-actions";
+      const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Editar"; on(edit, "click", () => openDraftMemberModal(member));
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "draft-remove-button"; remove.textContent = "Quitar"; on(remove, "click", () => removeDraftMember(member));
+      actions.append(edit, remove); row.append(actions);
+    } else row.insertAdjacentHTML("beforeend", '<span class="status-tag">Creador</span>');
+    list.append(row);
+  });
+}
+function renderCountWizard() {
+  if (!state.draft) return;
+  const step = state.draftStep;
+  $("#countStepLabel").textContent = "Paso " + step + " de 4";
+  document.querySelectorAll("[data-wizard-step]").forEach((item) => item.classList.toggle("is-active", Number(item.dataset.wizardStep) <= step));
+  document.querySelectorAll("[data-wizard-panel]").forEach((panel) => { panel.hidden = Number(panel.dataset.wizardPanel) !== step; });
+  $("#countBackButton").hidden = step === 1;
+  $("#countNextButton").hidden = step === 4;
+  $("#countCreateButton").hidden = step !== 4;
+  if (step === 1) $("#countName").value = state.draft.name || "";
+  if (step === 2) { renderDraftMembers(); $("#draftInviteLink").value = draftInviteUrl(); $("#draftInviteStatus").hidden = true; }
+  if (step === 3) renderCurrencyChoices($("#draftCurrencyChoices"), "draftCurrency", state.draft.primaryCurrency || state.profile?.defaultCurrency || DEFAULT_CURRENCY);
+  if (step === 4) {
+    $("#countConfirmSummary").innerHTML = '<div><dt>Nombre</dt><dd>' + esc(state.draft.name) + '</dd></div><div><dt>Participantes</dt><dd>' + state.draftMembers.filter((member) => member.active).map(draftMemberName).map(esc).join(", ") + '</dd></div><div><dt>Moneda principal</dt><dd>' + esc(state.draft.primaryCurrency || "—") + '</dd></div>';
+    $("#countConfirmInvite").value = draftInviteUrl();
+  }
+}
+async function refreshDraftMembers() { state.draftMembers = await getDraftMembers(state.draft.id); renderCountWizard(); }
+async function openCountModal() {
+  if (!state.user) return;
+  const trigger = $("#newCountButton"); if (trigger) trigger.disabled = true;
+  try {
+    state.draft = await startCountDraft({ user: state.user });
+    state.draft.primaryCurrency = state.profile?.defaultCurrency || DEFAULT_CURRENCY;
+    state.draftMembers = await getDraftMembers(state.draft.id);
+    state.draftStep = 1; $("#countError").hidden = true; renderCountWizard(); dialogs.countModal.showModal();
+  } catch (exception) { console.error(exception); showToast("No pudimos iniciar el nuevo Count."); }
+  finally { if (trigger) trigger.disabled = false; }
+}
+async function advanceCountWizard() {
+  if (!state.draft) return;
+  $("#countError").hidden = true;
+  try {
+    if (state.draftStep === 1) Object.assign(state.draft, await saveDraftName({ countId: state.draft.id, name: $("#countName").value, actor: state.user, existingCounts: state.counts }));
+    if (state.draftStep === 3) {
+      const currency = document.querySelector("[name='draftCurrency']:checked")?.value;
+      await saveDraftCurrency({ countId: state.draft.id, currency, actor: state.user }); state.draft.primaryCurrency = currency;
+    }
+    state.draftStep += 1; renderCountWizard();
+  } catch (exception) { error($("#countError"), exception, "Revisá los datos para continuar."); }
+}
+function backCountWizard() { if (state.draft && state.draftStep > 1) { state.draftStep -= 1; $("#countError").hidden = true; renderCountWizard(); } }
+async function copyDraftInvite(input, status) {
+  try { await navigator.clipboard.writeText(input.value); if (status) { status.textContent = "Link copiado."; status.hidden = false; } }
+  catch { if (status) { status.textContent = "Copialo manualmente desde el campo."; status.hidden = false; } }
+}
+function openDraftMemberModal(member = null) {
+  state.draftEditing = member; const form = $("#draftMemberForm"); form.reset();
+  $("#draftMemberTitle").textContent = member ? "Editar alias" : "Agregar integrante";
+  form.elements.alias.value = member?.alias || ""; $("#draftMemberError").hidden = true; dialogs.draftMemberModal.showModal();
+}
+async function removeDraftMember(member) {
+  try { await removeDraftManualMember({ countId: state.draft.id, member, actor: state.user }); await refreshDraftMembers(); }
+  catch (exception) { error($("#countError"), exception, "No pudimos quitar el integrante."); }
+}
+async function cancelCountWizard() {
+  if (state.draft && state.user) {
+    try { await clearCurrentDraft(state.user, { includeRecent: true }); }
+    catch (exception) { console.error(exception); showToast("No pudimos limpiar el borrador."); return; }
+  }
+  state.draft = null; state.draftMembers = []; dialogs.countModal.close();
+}
+async function finalizeCountWizard() {
+  if (!state.draft) return;
+  const button = $("#countCreateButton"); $("#countError").hidden = true; setBusy(button, true, "Crear Count", "Creando Count…");
+  try {
+    const id = await finalizeCountDraft({ countId: state.draft.id, actor: state.user });
+    state.draft = null; state.draftMembers = []; dialogs.countModal.close(); openCount(id);
+  } catch (exception) { error($("#countError"), exception, "No pudimos crear el Count. Intentá nuevamente."); }
+  finally { setBusy(button, false, "Crear Count"); }
 }
 function openExpenseModal(expense) {
   if (isReadOnly()) return;
   if (!activeMembers().length || !activeCategories().length) return;
   state.editing = expense || null; $("#expenseForm").reset(); $("#expenseError").hidden = true;
   $("#expenseModalTitle").textContent = expense ? "Editar gasto" : "Nuevo gasto";
-  const enabled = state.profile?.enabledCurrencies || [DEFAULT_CURRENCY];
-  putOptions($("#expenseCurrency"), enabled.map((code) => ({ id: code, name: code })), expense?.currency || DEFAULT_CURRENCY);
+  const primaryCurrency = state.count?.primaryCurrency || state.count?.defaultCurrency || DEFAULT_CURRENCY;
+  const enabled = [...new Set([...(state.profile?.enabledCurrencies || [DEFAULT_CURRENCY]), primaryCurrency])];
+  putOptions($("#expenseCurrency"), enabled.map((code) => ({ id: code, name: code })), expense?.currency || primaryCurrency);
   const categories = activeCategories();
   putOptions($("#expenseCategory"), categories.map((item) => ({ id: item.id, name: categoryEmoji(item) + " " + item.name })), expense?.categoryId || categories[0].id);
   const members = activeMembers();
@@ -395,6 +493,13 @@ function openCountActions() {
   const pending = pendingCurrencies();
   const manageMembersAction = $("#manageMembersAction");
   if (manageMembersAction) manageMembersAction.hidden = archived;
+  const changeCurrency = $("#changePrimaryCurrencyAction");
+  if (changeCurrency) {
+    const locked = Boolean(state.count?.hasMovements) || state.expenses.length > 0 || state.settlements.length > 0;
+    changeCurrency.hidden = archived;
+    changeCurrency.disabled = locked;
+    changeCurrency.title = locked ? "La moneda principal queda fija después del primer movimiento." : "";
+  }
   $("#archiveCountAction").hidden = archived;
   $("#unarchiveCountAction").hidden = !archived;
   $("#archiveCountAction").disabled = !archived && pending.length > 0;
@@ -403,6 +508,12 @@ function openCountActions() {
     ? "No se puede archivar porque todavía hay saldo pendiente en " + pending[0] + "."
     : "No se puede archivar porque todavía hay saldos pendientes.";
   dialogs.countActionsModal.showModal();
+}
+
+function openPrimaryCurrencyModal() {
+  if (!state.count || state.count.hasMovements || state.expenses.length || state.settlements.length) return;
+  renderCurrencyChoices($("#primaryCurrencyChoices"), "primaryCurrency", state.count.primaryCurrency || state.count.defaultCurrency || DEFAULT_CURRENCY);
+  $("#primaryCurrencyError").hidden = true; dialogs.primaryCurrencyModal.showModal();
 }
 
 function openMemberModal() {
@@ -484,6 +595,9 @@ on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true
 on($("#retryAccessButton"), "click", async () => { if (!state.user) return; try { await ensureUser(state.user); } catch (exception) { console.error(exception); } });
 on($("#pendingLogoutButton"), "click", () => signOutUser()); on($("#blockedLogoutButton"), "click", () => signOutUser());
 on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal);
+on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
+on($("#draftAddMemberButton"), "click", () => openDraftMemberModal()); on($("#copyDraftInviteButton"), "click", () => copyDraftInvite($("#draftInviteLink"), $("#draftInviteStatus"))); on($("#copyConfirmInviteButton"), "click", () => copyDraftInvite($("#countConfirmInvite")));
+on($("#changePrimaryCurrencyAction"), "click", () => { dialogs.countActionsModal.close(); openPrimaryCurrencyModal(); });
 on($("#memberAddButton"), "click", () => dialogs.memberChoiceModal.showModal());
 on($("#inviteMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); dialogs.memberModal.close(); openInviteModal(); });
 on($("#manualMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); openManualMemberModal(); });
@@ -491,18 +605,31 @@ on($("#editManualMemberAction"), "click", () => { dialogs.memberActionModal.clos
 on($("#removeMemberAction"), "click", () => removeMember(state.memberEditing, $("#removeMemberAction")));
 on($("#newCategoryButton"), "click", () => openCategoryModal());
 on($("#emojiPickerButton"), "click", openEmojiPicker);
-on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
+on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.googleDisplayName || state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
 document.querySelectorAll("[data-admin-tab]").forEach((button) => on(button, "click", () => { state.adminTab = button.dataset.adminTab; renderAdmin(); }));
 on($("#expenseForm"), "input", updateSplitPreview); on($("#expenseForm"), "change", updateSplitPreview);
 
-on($("#countForm"), "submit", async (event) => {
-  event.preventDefault(); const form = event.currentTarget; const button = event.submitter; const name = form.elements.name.value.trim(); if (!name) return;
-  $("#countError").hidden = true; setBusy(button, true, "Crear Count");
-  try { const id = await createCount({ name, user: state.user, defaultCurrency: form.elements.currency.value }); dialogs.countModal.close(); openCount(id); } catch (exception) { error($("#countError"), exception, "No pudimos crear el Count."); } finally { setBusy(button, false, "Crear Count"); }
+on($("#draftMemberForm"), "submit", async (event) => {
+  event.preventDefault(); const form = event.currentTarget; const button = event.submitter; const member = state.draftEditing;
+  $("#draftMemberError").hidden = true; setBusy(button, true, member ? "Guardar" : "Agregar");
+  try {
+    if (member) await updateDraftManualMember({ countId: state.draft.id, member, alias: form.elements.alias.value, actor: state.user });
+    else await createDraftManualMember({ countId: state.draft.id, alias: form.elements.alias.value, actor: state.user });
+    dialogs.draftMemberModal.close(); await refreshDraftMembers();
+  } catch (exception) { error($("#draftMemberError"), exception, "No pudimos guardar el integrante."); }
+  finally { setBusy(button, false, member ? "Guardar" : "Agregar"); }
 });
+on($("#primaryCurrencyForm"), "submit", async (event) => {
+  event.preventDefault(); const button = event.submitter; const currency = document.querySelector("[name='primaryCurrency']:checked")?.value;
+  $("#primaryCurrencyError").hidden = true; setBusy(button, true, "Guardar");
+  try { await updateCountPrimaryCurrency({ countId: state.count.id, currency, actor: state.user }); dialogs.primaryCurrencyModal.close(); showToast("✓ Moneda principal actualizada"); }
+  catch (exception) { error($("#primaryCurrencyError"), exception, "No pudimos cambiar la moneda principal."); }
+  finally { setBusy(button, false, "Guardar"); }
+});
+on(dialogs.countModal, "cancel", (event) => { event.preventDefault(); cancelCountWizard(); });
 on($("#categoryForm"), "submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget; const button = $("#saveCategoryButton"); const isEditing = Boolean(state.categoryEditing);
