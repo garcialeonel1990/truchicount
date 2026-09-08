@@ -146,6 +146,18 @@ function draftOwner(count, user) {
   return count.exists() && count.data().status === "draft" && count.data().createdBy === user.uid;
 }
 
+function inviteManualCandidates(members) {
+  return members.filter((member) => member.active && member.type === "manual" && !member.userId)
+    .map((member) => ({ memberId: member.id, alias: member.manualAlias || member.alias }));
+}
+
+function syncActiveInviteCandidates(batch, countId, invites, members) {
+  const manualCandidates = inviteManualCandidates(members);
+  invites.filter((invite) => invite.status === "active").forEach((invite) => {
+    batch.update(doc(db, "invites", invite.id), { manualCandidates, updatedAt: serverTimestamp() });
+  });
+}
+
 export async function startCountDraft({ user }) {
   await clearCurrentDraft(user, { includeRecent: true });
   const count = doc(collection(db, "counts"));
@@ -161,7 +173,7 @@ export async function startCountDraft({ user }) {
   });
   batch.set(member, { memberId: member.id, countId: count.id, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
   batch.set(membership, { countId: count.id, uid: user.uid, memberId: member.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: false, createdAt: serverTimestamp() });
-  batch.set(invite, { countId: count.id, status: "draft", createdBy: user.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null });
+  batch.set(invite, { countId: count.id, status: "draft", createdBy: user.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null, manualCandidates: [] });
   batch.update(doc(db, "users", user.uid), { draftCountId: count.id, draftExpiresAt: draftExpiry(), updatedAt: serverTimestamp() });
   await batch.commit();
   return { id: count.id, draftInviteToken: invite.id, status: "draft", name: "", normalizedName: "", primaryCurrency: null };
@@ -208,7 +220,7 @@ async function assertDraftOwner(countId, actor) {
 
 export async function createDraftManualMember({ countId, alias, actor }) {
   const values = cleanMemberAlias(alias);
-  await assertDraftOwner(countId, actor);
+  const count = await assertDraftOwner(countId, actor);
   const membersRef = collection(db, "counts", countId, "members");
   const members = (await getDocs(membersRef)).docs.map(toItem);
   if (await hasActiveMemberAlias(members, values.normalizedAlias)) throw new Error("Ya existe un integrante con ese alias en este Count.");
@@ -217,28 +229,32 @@ export async function createDraftManualMember({ countId, alias, actor }) {
   const batch = writeBatch(db);
   batch.set(ref, item);
   batch.update(doc(db, "counts", countId), { updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+  batch.update(doc(db, "invites", count.data().draftInviteToken), { manualCandidates: inviteManualCandidates([...members, { id: ref.id, ...item }]), updatedAt: serverTimestamp() });
   await batch.commit();
   return { id: ref.id, ...values, type: "manual", active: true, role: "member" };
 }
 
 export async function updateDraftManualMember({ countId, member, alias, actor }) {
   const values = cleanMemberAlias(alias);
-  await assertDraftOwner(countId, actor);
+  const count = await assertDraftOwner(countId, actor);
   const members = await getDraftMembers(countId);
   if (await hasActiveMemberAlias(members, values.normalizedAlias, member.id)) throw new Error("Ya existe un integrante con ese alias en este Count.");
   const batch = writeBatch(db);
   batch.update(doc(db, "counts", countId, "members", member.id), { ...values, updatedAt: serverTimestamp(), updatedBy: actor.uid });
   batch.update(doc(db, "counts", countId), { updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+  batch.update(doc(db, "invites", count.data().draftInviteToken), { manualCandidates: inviteManualCandidates(members.map((item) => item.id === member.id ? { ...item, ...values } : item)), updatedAt: serverTimestamp() });
   await batch.commit();
   return values;
 }
 
 export async function removeDraftManualMember({ countId, member, actor }) {
   if (member.type !== "manual") throw new Error("El creador no se puede quitar del borrador.");
-  await assertDraftOwner(countId, actor);
+  const count = await assertDraftOwner(countId, actor);
+  const members = await getDraftMembers(countId);
   const batch = writeBatch(db);
   batch.delete(doc(db, "counts", countId, "members", member.id));
   batch.update(doc(db, "counts", countId), { updatedAt: serverTimestamp(), updatedBy: actor.uid, draftExpiresAt: draftExpiry() });
+  batch.update(doc(db, "invites", count.data().draftInviteToken), { manualCandidates: inviteManualCandidates(members.filter((item) => item.id !== member.id)), updatedAt: serverTimestamp() });
   await batch.commit();
 }
 
@@ -476,13 +492,14 @@ export function normalizeMemberAlias(alias) {
 function cleanMemberAlias(alias) {
   const cleanAlias = String(alias ?? "").trim().replace(/\s+/g, " ");
   if (!cleanAlias) throw new Error("Ingresá un alias para el integrante.");
-  return { alias: cleanAlias, normalizedAlias: normalizeMemberAlias(cleanAlias) };
+  const normalizedAlias = normalizeMemberAlias(cleanAlias);
+  return { alias: cleanAlias, normalizedAlias, manualAlias: cleanAlias, normalizedManualAlias: normalizedAlias };
 }
 
 async function hasActiveMemberAlias(members, normalizedAlias, exceptMemberId = null) {
   const registered = members.filter((member) => member.active && member.type === "registered" && member.id !== exceptMemberId);
   const profiles = await Promise.all(registered.map((member) => getDoc(doc(db, "users", member.userId))));
-  return members.some((member) => member.active && member.id !== exceptMemberId && member.type === "manual" && member.normalizedAlias === normalizedAlias)
+  return members.some((member) => member.active && member.id !== exceptMemberId && member.type === "manual" && (member.normalizedManualAlias || member.normalizedAlias) === normalizedAlias)
     || profiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().googleDisplayName || profile.data().displayName) === normalizedAlias);
 }
 
@@ -490,26 +507,29 @@ export async function createManualMember({ countId, alias, actor }) {
   const values = cleanMemberAlias(alias);
   const countRef = doc(db, "counts", countId);
   const membersRef = collection(db, "counts", countId, "members");
-  const [countSnapshot, membersSnapshot] = await Promise.all([
+  const [countSnapshot, membersSnapshot, invitesSnapshot] = await Promise.all([
     getDoc(countRef),
     getDocs(membersRef),
+    getDocs(query(collection(db, "invites"), where("countId", "==", countId))),
   ]);
   if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
   const allMembers = membersSnapshot.docs.map(toItem);
   if (await hasActiveMemberAlias(allMembers, values.normalizedAlias)) throw new Error("Ya existe un integrante con ese alias en este Count.");
-  const sameAlias = allMembers.filter((member) => member.normalizedAlias === values.normalizedAlias);
+  const sameAlias = allMembers.filter((member) => (member.normalizedManualAlias || member.normalizedAlias) === values.normalizedAlias);
   const inactive = sameAlias.find((member) => member.type === "manual" && !member.active);
   const batch = writeBatch(db);
   if (inactive) {
     const ref = doc(membersRef, inactive.id);
-    batch.update(ref, { alias: values.alias, normalizedAlias: values.normalizedAlias, active: true, reactivatedAt: serverTimestamp(), reactivatedBy: actor.uid, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+    batch.update(ref, { ...values, active: true, reactivatedAt: serverTimestamp(), reactivatedBy: actor.uid, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+    syncActiveInviteCandidates(batch, countId, invitesSnapshot.docs.map(toItem), allMembers.map((member) => member.id === inactive.id ? { ...member, ...values, active: true } : member));
     audit(batch, { entityType: "member", entityId: inactive.id, countId, action: "reactivateMember", actor, before: { alias: inactive.alias, active: false }, after: { alias: values.alias, active: true } });
     await batch.commit();
     return { id: inactive.id, reactivated: true };
   }
   const ref = doc(membersRef);
-  batch.set(ref, { memberId: ref.id, countId, type: "manual", userId: null, alias: values.alias, normalizedAlias: values.normalizedAlias, role: "member", active: true, createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
-  audit(batch, { entityType: "member", entityId: ref.id, countId, action: "createMember", actor, after: { alias: values.alias, type: "manual" } });
+  batch.set(ref, { memberId: ref.id, countId, type: "manual", userId: null, ...values, previousManualAlias: null, role: "member", active: true, createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
+  syncActiveInviteCandidates(batch, countId, invitesSnapshot.docs.map(toItem), [...allMembers, { id: ref.id, ...values, type: "manual", userId: null, active: true }]);
+  audit(batch, { entityType: "member", entityId: ref.id, countId, action: "createManualMember", actor, after: { alias: values.alias, type: "manual" } });
   await batch.commit();
   return { id: ref.id, reactivated: false };
 }
@@ -517,20 +537,21 @@ export async function createManualMember({ countId, alias, actor }) {
 export async function updateManualMember({ countId, member, alias, actor }) {
   const values = cleanMemberAlias(alias);
   const membersRef = collection(db, "counts", countId, "members");
-  const [countSnapshot, matches] = await Promise.all([getDoc(doc(db, "counts", countId)), getDocs(membersRef)]);
+  const [countSnapshot, matches, invitesSnapshot] = await Promise.all([getDoc(doc(db, "counts", countId)), getDocs(membersRef), getDocs(query(collection(db, "invites"), where("countId", "==", countId)))]);
   if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
   if (await hasActiveMemberAlias(matches.docs.map(toItem), values.normalizedAlias, member.id)) throw new Error("Ya existe un integrante con ese alias en este Count.");
   const batch = writeBatch(db);
-  batch.update(doc(membersRef, member.id), { alias: values.alias, normalizedAlias: values.normalizedAlias, updatedAt: serverTimestamp(), updatedBy: actor.uid });
-  audit(batch, { entityType: "member", entityId: member.id, countId, action: "updateMember", actor, before: { alias: member.alias }, after: { alias: values.alias } });
+  batch.update(doc(membersRef, member.id), { ...values, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  syncActiveInviteCandidates(batch, countId, invitesSnapshot.docs.map(toItem), matches.docs.map(toItem).map((item) => item.id === member.id ? { ...item, ...values } : item));
+  audit(batch, { entityType: "member", entityId: member.id, countId, action: "updateManualMemberAlias", actor, before: { alias: member.alias }, after: { alias: values.alias } });
   await batch.commit();
 }
 
 export async function removeCountMember({ countId, member, actor }) {
   const countRef = doc(db, "counts", countId);
   const memberRef = doc(db, "counts", countId, "members", member.id);
-  const [countSnapshot, memberSnapshot, activeMembers, balances, hasMovements] = await Promise.all([
-    getDoc(countRef), getDoc(memberRef), getDocs(query(collection(db, "counts", countId, "members"), where("active", "==", true))), getCountBalance(countId), memberHasMovements(countId, member.id),
+  const [countSnapshot, memberSnapshot, activeMembers, balances, hasMovements, invitesSnapshot] = await Promise.all([
+    getDoc(countRef), getDoc(memberRef), getDocs(query(collection(db, "counts", countId, "members"), where("active", "==", true))), getCountBalance(countId), memberHasMovements(countId, member.id), getDocs(query(collection(db, "invites"), where("countId", "==", countId))),
   ]);
   if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
   if (!memberSnapshot.exists() || !memberSnapshot.data().active) throw new Error("Este integrante ya no está activo.");
@@ -542,11 +563,78 @@ export async function removeCountMember({ countId, member, actor }) {
   if (hasMovements) batch.update(memberRef, { active: false, removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
   else batch.delete(memberRef);
   if (member.type === "registered") batch.update(doc(db, "memberships", `${countId}_${member.userId}`), { status: "inactive", removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  syncActiveInviteCandidates(batch, countId, invitesSnapshot.docs.map(toItem), activeMembers.docs.map(toItem).filter((item) => item.id !== member.id));
   audit(batch, {
     entityType: "member", entityId: memberRef.id, countId, action: "removeMember", actor,
     before: { type: member.type, alias: member.alias || null, active: true }, after: { active: false },
   });
   await batch.commit();
+}
+
+export async function correctMemberLink({ countId, member, targetManualId = null, actor }) {
+  if (actor.uid !== ADMIN_UID) throw new Error("No tenés permisos de administración.");
+  if (member?.type !== "registered" || !member.userId) throw new Error("Elegí un integrante registrado para corregir.");
+  const countRef = doc(db, "counts", countId);
+  const sourceRef = doc(db, "counts", countId, "members", member.id);
+  const membershipRef = doc(db, "memberships", `${countId}_${member.userId}`);
+  const profileRef = doc(db, "users", member.userId);
+  const targetRef = targetManualId ? doc(db, "counts", countId, "members", targetManualId) : null;
+  return runTransaction(db, async (transaction) => {
+    const [count, source, membership, profile, target] = await Promise.all([
+      transaction.get(countRef), transaction.get(sourceRef), transaction.get(membershipRef), transaction.get(profileRef),
+      targetRef ? transaction.get(targetRef) : Promise.resolve(null),
+    ]);
+    if (!count.exists() || count.data().status !== "active") throw new Error("No podés corregir integrantes en un Count archivado.");
+    if (!source.exists() || source.data().type !== "registered" || !source.data().active || source.data().userId !== member.userId) throw new Error("Esta vinculación ya cambió. Volvé a abrir el integrante.");
+    if (!membership.exists() || membership.data().status !== "active" || membership.data().memberId !== sourceRef.id) throw new Error("El acceso de este integrante ya cambió. Volvé a intentar.");
+
+    const globalAlias = profile.exists() ? (profile.data().alias || profile.data().googleDisplayName || profile.data().displayName) : null;
+    const restoredAlias = source.data().manualAlias || source.data().previousManualAlias || globalAlias || "Integrante";
+    const restored = cleanMemberAlias(restoredAlias);
+    transaction.update(sourceRef, {
+      type: "manual", userId: null, role: "member", ...restored,
+      previousManualAlias: null, inviteToken: null, linkedAt: null, linkedByUid: null,
+      updatedAt: serverTimestamp(), updatedBy: actor.uid,
+    });
+
+    let destinationRef;
+    if (targetManualId) {
+      destinationRef = targetRef;
+      if (!target?.exists() || !target.data().active || target.data().type !== "manual" || target.data().userId != null) throw new Error("Ese perfil manual ya no está disponible. Elegí otro.");
+      transaction.update(destinationRef, {
+        type: "registered", userId: member.userId, alias: null, role: "owner",
+        previousManualAlias: target.data().manualAlias || target.data().alias,
+        inviteToken: source.data().inviteToken || null,
+        linkedAt: serverTimestamp(), linkedByUid: actor.uid,
+        updatedAt: serverTimestamp(), updatedBy: actor.uid,
+      });
+    } else {
+      destinationRef = doc(collection(db, "counts", countId, "members"));
+      transaction.set(destinationRef, {
+        memberId: destinationRef.id, countId, type: "registered", userId: member.userId,
+        alias: null, role: "owner", active: true, previousManualAlias: null,
+        inviteToken: source.data().inviteToken || null,
+        createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid,
+        removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1,
+      });
+    }
+    transaction.update(membershipRef, {
+      memberId: destinationRef.id, role: "owner", status: "active",
+      updatedAt: serverTimestamp(), updatedBy: actor.uid,
+    });
+    transaction.set(auditRef(), {
+      entityType: "member", entityId: sourceRef.id, countId, action: "adminCorrectMemberLink",
+      actorUid: actor.uid, actorNameSnapshot: actor.displayName || actor.email || "Usuario",
+      before: { memberId: sourceRef.id, userId: member.userId, type: "registered" },
+      after: { memberId: destinationRef.id, userId: member.userId, type: "registered" },
+      createdAt: serverTimestamp(),
+    });
+    if (!targetManualId) transaction.set(auditRef(), {
+      entityType: "member", entityId: destinationRef.id, countId, action: "adminCreateRegisteredDuringCorrection",
+      actorUid: actor.uid, actorNameSnapshot: actor.displayName || actor.email || "Usuario",
+      after: { type: "registered", userId: member.userId }, createdAt: serverTimestamp(),
+    });
+  });
 }
 
 function archiveSnapshot() {
@@ -669,14 +757,16 @@ export async function unarchiveCount({ countId, actor }) {
 }
 
 export async function createInvite(countId, actor) {
-  const count = await getDoc(doc(db, "counts", countId));
+  const [count, members] = await Promise.all([getDoc(doc(db, "counts", countId)), getDocs(collection(db, "counts", countId, "members"))]);
   if (!count.exists() || count.data().status === "archived") throw new Error("Este Count está archivado y no acepta nuevos miembros.");
+  const manualCandidates = members.docs.map(toItem).filter((member) => member.active && member.type === "manual" && !member.userId)
+    .map((member) => ({ memberId: member.id, alias: member.manualAlias || member.alias }));
   const ref = doc(collection(db, "invites"));
-  await setDoc(ref, { countId, status: "active", createdBy: actor.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null });
+  await setDoc(ref, { countId, status: "active", createdBy: actor.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null, manualCandidates });
   return ref.id;
 }
 
-export async function joinInvite(token, user) {
+export async function joinInvite(token, user, { manualMemberId = undefined } = {}) {
   const inviteRef = doc(db, "invites", token);
   return runTransaction(db, async (transaction) => {
     const invite = await transaction.get(inviteRef);
@@ -685,20 +775,49 @@ export async function joinInvite(token, user) {
     if (invite.data().status !== "active") throw new Error("Esta invitación no existe o ya no está activa.");
     const countId = invite.data().countId;
     const membershipRef = doc(db, "memberships", `${countId}_${user.uid}`);
-    const memberRef = doc(db, "counts", countId, "members", `registered_${user.uid}`);
-    const [membership, member] = await Promise.all([transaction.get(membershipRef), transaction.get(memberRef)]);
+    const membership = await transaction.get(membershipRef);
+    const knownMemberId = membership.exists() && membership.data().memberId;
+    const memberRef = doc(db, "counts", countId, "members", knownMemberId || `registered_${user.uid}`);
+    const member = await transaction.get(memberRef);
     const needsMembership = !membership.exists() || membership.data().status !== "active";
-    if (!member.exists()) {
-      transaction.set(memberRef, { memberId: memberRef.id, countId, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, inviteToken: token, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
-      transaction.set(auditRef(), { entityType: "member", entityId: memberRef.id, countId, action: "createMember", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", after: { type: "registered", userId: user.uid }, createdAt: serverTimestamp() });
+    const isOwnRegisteredMember = member.exists() && member.data().type === "registered" && member.data().userId === user.uid;
+    if (isOwnRegisteredMember && member.data().active && !needsMembership) return { countId, alreadyMember: true };
+    if (isOwnRegisteredMember && member.data().active && needsMembership) {
+      if (membership.exists()) transaction.update(membershipRef, { memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
+      else transaction.set(membershipRef, { countId, uid: user.uid, memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
+      transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + 1, lastUsedAt: serverTimestamp() });
+      return { countId, alreadyMember: true };
+    }
+    const candidates = (invite.data().manualCandidates || []).filter((candidate) => candidate?.memberId && candidate?.alias);
+    if (!isOwnRegisteredMember && manualMemberId === undefined && candidates.length) return { countId, candidates, requiresIdentityChoice: true };
+    if (manualMemberId) {
+      if (isOwnRegisteredMember) throw new Error("Ya sos integrante de este Count.");
+      const manualRef = doc(db, "counts", countId, "members", manualMemberId);
+      const manual = await transaction.get(manualRef);
+      if (!manual.exists() || !manual.data().active || manual.data().type !== "manual" || manual.data().userId != null) throw new Error("Este perfil ya fue vinculado a otra cuenta. Elegí otro perfil o continuá con Ninguno de estos.");
+      const previousManualAlias = manual.data().manualAlias || manual.data().alias;
+      transaction.update(manualRef, { type: "registered", userId: user.uid, alias: null, role: "owner", previousManualAlias, inviteToken: token, linkedAt: serverTimestamp(), linkedByUid: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid });
+      transaction.set(auditRef(), { entityType: "member", entityId: manualRef.id, countId, action: "manualLinkedToUser", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", before: { type: "manual", manualAlias: previousManualAlias }, after: { type: "registered", userId: user.uid }, createdAt: serverTimestamp() });
+      if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: manualRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
+      else if (needsMembership) transaction.update(membershipRef, { memberId: manualRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
+      transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + (needsMembership ? 1 : 0), lastUsedAt: serverTimestamp() });
+      return { countId, linkedManual: true };
+    }
+    if (!isOwnRegisteredMember) {
+      const newMemberRef = membership.exists() ? doc(collection(db, "counts", countId, "members")) : memberRef;
+      if (member.exists()) throw new Error("Tu acceso a este Count cambió. Volvé a abrir la invitación.");
+      transaction.set(newMemberRef, { memberId: newMemberRef.id, countId, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, inviteToken: token, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
+      transaction.set(auditRef(), { entityType: "member", entityId: newMemberRef.id, countId, action: "createRegisteredMember", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", after: { type: "registered", userId: user.uid }, createdAt: serverTimestamp() });
+      if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: newMemberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
+      else transaction.update(membershipRef, { memberId: newMemberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
     } else if (!member.data().active) {
       transaction.update(memberRef, { active: true, inviteToken: token, reactivatedAt: serverTimestamp(), reactivatedBy: user.uid, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
       transaction.set(auditRef(), { entityType: "member", entityId: memberRef.id, countId, action: "reactivateMember", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", before: { active: false }, after: { active: true }, createdAt: serverTimestamp() });
     }
-    if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
-    else if (needsMembership) transaction.update(membershipRef, { memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
+    if (isOwnRegisteredMember && !membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
+    else if (isOwnRegisteredMember && needsMembership) transaction.update(membershipRef, { memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
     transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + (needsMembership ? 1 : 0), lastUsedAt: serverTimestamp() });
-    return countId;
+    return { countId, alreadyMember: !needsMembership };
   });
 }
 
@@ -714,7 +833,7 @@ export async function updateUserSettings(uid, data) {
     const otherProfiles = await Promise.all([...new Set(otherRegisteredIds)].map((userId) => getDoc(doc(db, "users", userId))));
     const conflict = memberLists.some((snapshot) => snapshot.docs.some((member) => {
       const item = member.data();
-      return item.active && item.type === "manual" && item.normalizedAlias === normalizedAlias;
+      return item.active && item.type === "manual" && (item.normalizedManualAlias || item.normalizedAlias) === normalizedAlias;
   })) || otherProfiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().googleDisplayName || profile.data().displayName) === normalizedAlias);
     if (conflict) throw new Error("Ya existe un integrante con ese alias en uno de tus Counts activos.");
   }

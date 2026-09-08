@@ -1,12 +1,12 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
-import { ADMIN_UID, archiveCount, clearCurrentDraft, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
+const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
 const unsubscribers = { access: [], app: [], admin: [], detail: [], profiles: [] };
-const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "memberChoiceModal", "memberActionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "primaryCurrencyModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "primaryCurrencyModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -84,16 +84,38 @@ function inviteToken() {
 }
 async function acceptInvite(token) {
   try {
-    const id = await joinInvite(token, state.user);
-    history.replaceState({}, "", "/");
-    clearPendingInvite();
-    openCount(id);
+    const result = await joinInvite(token, state.user);
+    if (result.requiresIdentityChoice) { openInviteIdentityChoice(token, result); return; }
+    history.replaceState({}, "", "/"); clearPendingInvite();
+    if (result.alreadyMember) showToast("Ya sos integrante de este Count.");
+    openCount(result.countId);
   } catch (exception) {
     history.replaceState({}, "", "/");
     error($("#authError"), exception, "No pudimos usar esta invitación.");
     showScreen("home");
     showToast(exception?.message || "No pudimos usar esta invitación.");
   }
+}
+function openInviteIdentityChoice(token, result) {
+  state.inviteIdentity = { token, countId: result.countId, candidates: result.candidates };
+  const list = $("#inviteCandidateList"); list.replaceChildren();
+  result.candidates.forEach((candidate) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = "member-row member-row-action";
+    button.innerHTML = '<span class="member-avatar">' + esc(candidate.alias.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(candidate.alias) + '</strong></span><span class="chevron">›</span>';
+    on(button, "click", () => chooseInviteIdentity(candidate)); list.append(button);
+  });
+  $("#inviteIdentityError").hidden = true; dialogs.inviteIdentityModal.showModal();
+}
+async function chooseInviteIdentity(candidate = null) {
+  const identity = state.inviteIdentity; if (!identity) return;
+  if (candidate && !confirm("¿Sos " + candidate.alias + "?\n\nEste perfil se va a vincular de forma permanente con tu cuenta de TruchiCount y conservará todo su historial.")) return;
+  $("#inviteIdentityError").hidden = true;
+  try {
+    const result = await joinInvite(identity.token, state.user, { manualMemberId: candidate?.memberId ?? null });
+    history.replaceState({}, "", "/"); clearPendingInvite(); dialogs.inviteIdentityModal.close(); state.inviteIdentity = null;
+    if (result.linkedManual) showToast("Perfil vinculado correctamente. Tus movimientos anteriores se conservaron.");
+    openCount(result.countId);
+  } catch (exception) { error($("#inviteIdentityError"), exception, "No pudimos vincular el perfil."); }
 }
 function savePendingInvite(token) { try { sessionStorage.setItem("truchicountPendingInvite", token); } catch {} }
 function pendingInviteToken() { try { return sessionStorage.getItem("truchicountPendingInvite"); } catch { return null; } }
@@ -545,12 +567,38 @@ function openMemberActions(member) {
   state.memberEditing = member;
   $("#memberActionTitle").textContent = memberName(member);
   $("#editManualMemberAction").hidden = member.type !== "manual" || isReadOnly() || !canManageMembers();
+  $("#correctMemberLinkAction").hidden = !isAdmin() || member.type !== "registered" || isReadOnly();
   const remove = $("#removeMemberAction");
   const reason = memberRemovalReason(member);
   remove.disabled = Boolean(reason);
   $("#memberActionReason").textContent = reason;
   $("#memberActionReason").hidden = !reason;
   dialogs.memberActionModal.showModal();
+}
+
+function openMemberCorrection(member) {
+  if (!isAdmin() || member?.type !== "registered" || isReadOnly()) return;
+  state.memberCorrection = member;
+  const list = $("#memberCorrectionList"); list.replaceChildren();
+  activeMembers().filter((item) => item.type === "manual" && item.userId == null).forEach((candidate) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = "member-row member-row-action";
+    const name = memberName(candidate);
+    button.innerHTML = '<span class="member-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong></span><span class="chevron">›</span>';
+    on(button, "click", () => confirmMemberCorrection(candidate)); list.append(button);
+  });
+  $("#memberCorrectionError").hidden = true;
+  dialogs.memberActionModal.close(); dialogs.memberCorrectionModal.showModal();
+}
+
+async function confirmMemberCorrection(target = null) {
+  const source = state.memberCorrection; if (!source || !state.count) return;
+  if (!confirm("¿Corregir esta vinculación?\n\nEsta acción cambiará qué integrante representa esta cuenta dentro del Count. Los movimientos históricos de cada integrante se conservarán.")) return;
+  $("#memberCorrectionError").hidden = true;
+  try {
+    await correctMemberLink({ countId: state.count.id, member: source, targetManualId: target?.id || null, actor: state.user });
+    dialogs.memberCorrectionModal.close(); dialogs.memberModal.close(); state.memberCorrection = null;
+    showToast("✓ Vinculación corregida");
+  } catch (exception) { error($("#memberCorrectionError"), exception, "No pudimos corregir la vinculación."); }
 }
 
 function openManualMemberModal(member = null) {
@@ -597,11 +645,14 @@ on($("#pendingLogoutButton"), "click", () => signOutUser()); on($("#blockedLogou
 on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal);
 on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
 on($("#draftAddMemberButton"), "click", () => openDraftMemberModal()); on($("#copyDraftInviteButton"), "click", () => copyDraftInvite($("#draftInviteLink"), $("#draftInviteStatus"))); on($("#copyConfirmInviteButton"), "click", () => copyDraftInvite($("#countConfirmInvite")));
+on($("#inviteNoneButton"), "click", () => chooseInviteIdentity());
 on($("#changePrimaryCurrencyAction"), "click", () => { dialogs.countActionsModal.close(); openPrimaryCurrencyModal(); });
 on($("#memberAddButton"), "click", () => dialogs.memberChoiceModal.showModal());
 on($("#inviteMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); dialogs.memberModal.close(); openInviteModal(); });
 on($("#manualMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); openManualMemberModal(); });
 on($("#editManualMemberAction"), "click", () => { dialogs.memberActionModal.close(); openManualMemberModal(state.memberEditing); });
+on($("#correctMemberLinkAction"), "click", () => openMemberCorrection(state.memberEditing));
+on($("#memberCorrectionNone"), "click", () => confirmMemberCorrection());
 on($("#removeMemberAction"), "click", () => removeMember(state.memberEditing, $("#removeMemberAction")));
 on($("#newCategoryButton"), "click", () => openCategoryModal());
 on($("#emojiPickerButton"), "click", openEmojiPicker);

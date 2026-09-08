@@ -180,7 +180,10 @@ service cloud.firestore {
       }
 
       match /members/{memberId} {
-        allow read: if isAdmin() || isCountMember(countId);
+        // Un invitado aprobado puede resolver únicamente un Member conocido
+        // desde su invite; el listado completo sigue siendo privado del Count.
+        allow get: if isAdmin() || isCountMember(countId) || isApprovedUser();
+        allow list: if isAdmin() || isCountMember(countId);
         // Los manuales no poseen Auth; sólo un integrante registrado puede
         // crearlos. Los registrados llegan exclusivamente por una invitación.
         allow create: if isAdmin() || (
@@ -217,7 +220,8 @@ service cloud.firestore {
                 && request.resource.data.type == "manual"
                 && request.resource.data.userId == null
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                  "alias", "normalizedAlias", "active", "removedAt", "removedBy",
+                  "alias", "normalizedAlias", "manualAlias", "normalizedManualAlias",
+                  "active", "removedAt", "removedBy",
                   "updatedAt", "updatedBy"
                 ]))
               || (resource.data.type == "registered"
@@ -233,7 +237,8 @@ service cloud.firestore {
             && resource.data.active == false
             && request.resource.data.active == true
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              "alias", "normalizedAlias", "active", "reactivatedAt", "reactivatedBy",
+              "alias", "normalizedAlias", "manualAlias", "normalizedManualAlias",
+              "active", "reactivatedAt", "reactivatedBy",
               "removedAt", "removedBy", "updatedAt", "updatedBy"
             ]))
           // Reactivación de un registrado solamente mediante invitación válida.
@@ -248,7 +253,25 @@ service cloud.firestore {
             && resource.data.type == "manual"
             && request.resource.data.type == "manual"
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              "alias", "normalizedAlias", "updatedAt", "updatedBy"
+              "alias", "normalizedAlias", "manualAlias", "normalizedManualAlias",
+              "updatedAt", "updatedBy"
+            ]))
+          // Un invitado aprobado puede reclamar un manual elegible, pero debe
+          // crear su membership en la misma transacción.
+          || (isApprovedUser()
+            && resource.data.type == "manual"
+            && resource.data.active == true
+            && resource.data.userId == null
+            && request.resource.data.type == "registered"
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.role == "owner"
+            && hasActiveInvite(request.resource.data.inviteToken, countId)
+            && existsAfter(membershipPath(countId, request.auth.uid))
+            && getAfter(membershipPath(countId, request.auth.uid)).data.memberId == memberId
+            && getAfter(membershipPath(countId, request.auth.uid)).data.status == "active"
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              "type", "userId", "alias", "role", "previousManualAlias", "inviteToken",
+              "linkedAt", "linkedByUid", "updatedAt", "updatedBy"
             ]));
         allow delete: if isAdmin() || (isActiveCountMember(countId)
           && resource.data.active == true)
@@ -265,6 +288,10 @@ service cloud.firestore {
       allow create: if isAdmin() || (isApprovedUser()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == "active"
+        && existsAfter(/databases/$(database)/documents/counts/$(request.resource.data.countId)/members/$(request.resource.data.memberId))
+        && getAfter(/databases/$(database)/documents/counts/$(request.resource.data.countId)/members/$(request.resource.data.memberId)).data.type == "registered"
+        && getAfter(/databases/$(database)/documents/counts/$(request.resource.data.countId)/members/$(request.resource.data.memberId)).data.userId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/counts/$(request.resource.data.countId)/members/$(request.resource.data.memberId)).data.active == true
         && (
           (getAfter(/databases/$(database)/documents/counts/$(request.resource.data.countId)).data.ownerUid == request.auth.uid
             && request.resource.data.role == "owner")
@@ -284,6 +311,10 @@ service cloud.firestore {
           && request.resource.data.status == "active"
           && isActiveCount(resource.data.countId)
           && hasActiveInvite(request.resource.data.inviteToken, resource.data.countId)
+          && existsAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId))
+          && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.type == "registered"
+          && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.userId == request.auth.uid
+          && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.active == true
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]));
       allow delete: if isAdmin()
@@ -307,12 +338,24 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(["usageCount", "lastUsedAt"]))
+        || (isActiveCountMember(resource.data.countId)
+          && resource.data.status == "active"
+          && request.resource.data.countId == resource.data.countId
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["manualCandidates", "updatedAt"]))
         || (isDraftOwner(resource.data.countId)
           && resource.data.status == "draft"
           && request.resource.data.status == "active"
           && isActiveCountAfter(resource.data.countId)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["status", "activatedAt"]));
+            .hasOnly(["status", "activatedAt"]))
+        || (isDraftOwner(resource.data.countId)
+          && resource.data.status == "draft"
+          && request.resource.data.status == "draft"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["manualCandidates", "updatedAt"]));
       allow delete: if isAdmin()
         || (isDraftOwner(resource.data.countId)
           && !existsAfter(/databases/$(database)/documents/counts/$(resource.data.countId)));
