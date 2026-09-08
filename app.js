@@ -232,6 +232,7 @@ function renderHeader() {
 }
 function showScreen(name) {
   state.screen = name;
+  $("#appShell").classList.toggle("is-detail-view", name === "detail");
   $("#homeScreen").hidden = name !== "home";
   $("#detailScreen").hidden = name !== "detail";
   $("#settingsScreen").hidden = name !== "settings";
@@ -273,7 +274,8 @@ function renderHome() {
   counts.forEach((count) => {
     const card = document.createElement("button");
     card.type = "button"; card.className = "project-card";
-    card.innerHTML = '<span><strong>' + esc(count.name) + '</strong><small>' + (count.status === "archived" ? '<span class="archive-badge">Archivado</span>' : "Count compartido") + '</small></span><span class="chevron">›</span>';
+    const context = count.status === "archived" ? '<span class="archive-badge">Archivado</span>' : esc(count.primaryCurrency || count.defaultCurrency || DEFAULT_CURRENCY);
+    card.innerHTML = '<span><strong>' + esc(count.name) + '</strong><small>' + context + '</small></span><span class="chevron">›</span>';
     on(card, "click", () => openCount(count.id)); list.append(card);
   });
   if (state.homeLoading.pendingCountIds.length || state.homeLoading.countErrors.length) {
@@ -331,8 +333,11 @@ function detailError(exception) {
 function renderDetail() {
   if (!state.count) return;
   $("#countTitle").textContent = state.count.name;
+  $("#countTitle").setAttribute("aria-label", "Nombre completo del Count: " + state.count.name);
+  $("#countTitle").title = state.count.name;
   const members = activeMembers();
-  $("#memberSummary").textContent = members.length ? members.length + (members.length === 1 ? " integrante · " : " integrantes · ") + members.map(memberName).join(", ") : "Cargando integrantes…";
+  const currency = state.count.primaryCurrency || state.count.defaultCurrency || DEFAULT_CURRENCY;
+  $("#memberSummary").textContent = members.length ? members.length + (members.length === 1 ? " integrante · " : " integrantes · ") + currency : "Cargando integrantes…";
   const archived = isReadOnly();
   $("#shareButton").hidden = archived;
   $("#addExpenseButton").hidden = archived;
@@ -342,7 +347,7 @@ function renderDetail() {
 }
 
 function totals(items) { return items.reduce((all, item) => Object.assign(all, { [item.currency]: (all[item.currency] || 0) + item.amountMinor }), {}); }
-function moneyGroups(items) { const values = Object.entries(totals(items)); return values.length ? values.map(([currency, amount]) => formatMoney(amount, currency)).join(" · ") : formatMoney(0); }
+function moneyGroups(items) { const values = Object.entries(totals(items)); return (values.length ? values : [[state.count?.primaryCurrency || state.count?.defaultCurrency || DEFAULT_CURRENCY, 0]]).map(([currency, amount]) => '<span>' + formatMoney(amount, currency) + '</span>').join(""); }
 function renderExpenses() {
   const all = activeExpenses();
   const myMemberId = activeMembers().find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
@@ -356,7 +361,7 @@ function renderExpenses() {
   items.forEach((expense) => {
     const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
     const card = document.createElement("button"); card.className = "expense-card"; card.type = "button";
-    card.innerHTML = '<span class="expense-icon">' + esc(category.emoji) + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>' + esc(category.name) + " · " + prettyDate(expense.expenseDate) + '</small><small>Pagó ' + esc(nameOf(expense.payerMemberId)) + " · " + expense.participantMemberIds.length + ' participantes</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
+    card.innerHTML = '<span class="expense-icon" aria-hidden="true">' + esc(category.emoji) + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>Pagó ' + esc(nameOf(expense.payerMemberId)) + " · " + prettyDate(expense.expenseDate) + '</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
     on(card, "click", () => openExpenseDetail(expense)); list.append(card);
   });
 }
@@ -376,8 +381,7 @@ function renderBalances() {
     return;
   }
   if (presentation.state === "settled") {
-    actions.innerHTML = '<section class="settled-state"><strong>Todo saldado 🎉</strong><span>Nadie le debe nada a nadie.</span></section>';
-    if (!isReadOnly()) actions.insertAdjacentHTML("beforeend", '<p class="archive-ready">Este Count ya se puede archivar.</p>');
+    actions.innerHTML = '<section class="settled-state"><strong><span aria-hidden="true">✓</span> Todo saldado</strong></section>';
   } else {
     if (presentation.state === "up-to-date") {
       actions.innerHTML = '<section class="settled-state"><strong>Vos estás al día</strong><span>Hay pagos pendientes entre otros integrantes.</span></section>';
@@ -403,7 +407,7 @@ function renderBalances() {
     }).join("");
     const card = document.createElement("article"); card.className = "balance-card";
     const name = memberName(member);
-    card.innerHTML = '<span class="balance-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + (member.userId === state.user.uid ? "Vos" : "Integrante") + '</small></span><span class="balance-amount">' + amounts + "</span>";
+    card.innerHTML = '<span class="balance-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong>' + (member.userId === state.user.uid ? '<small>Vos</small>' : "") + '</span><span class="balance-amount">' + amounts + "</span>";
     list.append(card);
   });
 }
@@ -433,11 +437,9 @@ function renderSettings() {
   if (!active.length) {
     categories.innerHTML = '<div class="empty-category-row">No hay categorías activas.</div>';
   } else active.forEach((category) => {
-      const row = document.createElement("article"); row.className = "settings-row category-row";
-      row.innerHTML = '<span>' + esc(categoryEmoji(category)) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="category-actions"><button class="category-icon-button" type="button" aria-label="Editar categoría">✎</button><button class="category-icon-button category-delete-button" type="button" aria-label="Eliminar categoría">×</button></span>';
-      const buttons = row.querySelectorAll("button");
-      on(buttons[0], "click", () => openCategoryModal(category));
-      on(buttons[1], "click", () => deleteCategory(category));
+      const row = document.createElement("button"); row.type = "button"; row.className = "settings-row category-row category-row-action";
+      row.innerHTML = '<span>' + esc(categoryEmoji(category)) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="chevron">›</span>';
+      on(row, "click", () => openCategoryModal(category));
       categories.append(row);
     });
   renderAdmin();
@@ -497,6 +499,7 @@ function openCategoryModal(category = null) {
   $("#categoryModalTitle").textContent = category ? "Editar categoría" : "Nueva categoría";
   $("#categoryEmojiPreview").textContent = state.categoryEmoji;
   $("#categoryForm").elements.name.value = category?.name || "";
+  $("#deleteCategoryModalButton").hidden = !category;
   $("#categoryError").hidden = true;
   $("#categoryError").textContent = "";
   dialogs.categoryModal.showModal();
@@ -539,9 +542,11 @@ async function deleteCategory(category) {
   try {
     await softDeleteCategory({ category, actor: state.user });
     showToast("✓ Categoría eliminada");
+    return true;
   } catch (exception) {
     console.error(exception);
     showToast("No pudimos eliminar la categoría.");
+    return false;
   }
 }
 
@@ -719,6 +724,7 @@ function openCountActions() {
     changeCurrency.hidden = archived;
     changeCurrency.disabled = locked;
     changeCurrency.title = locked ? "La moneda principal queda fija después del primer movimiento." : "";
+    $("#currencyActionNote").textContent = locked ? "No se puede cambiar después del primer movimiento." : "";
   }
   $("#archiveCountAction").hidden = archived;
   $("#unarchiveCountAction").hidden = !archived;
@@ -855,6 +861,7 @@ on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true
 on($("#retryAccessButton"), "click", async () => { if (!state.user) return; try { await ensureUser(state.user); } catch (exception) { console.error(exception); } });
 on($("#pendingLogoutButton"), "click", () => signOutUser()); on($("#blockedLogoutButton"), "click", () => signOutUser());
 on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal);
+on($("#countTitle"), "click", () => { if (state.count?.name) showToast(state.count.name); });
 on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
 on($("#draftAddMemberButton"), "click", () => openDraftMemberModal()); on($("#copyDraftInviteButton"), "click", () => copyDraftInvite($("#draftInviteLink"), $("#draftInviteStatus"))); on($("#copyConfirmInviteButton"), "click", () => copyDraftInvite($("#countConfirmInvite")));
 on($("#inviteNoneButton"), "click", () => chooseInviteIdentity());
@@ -868,6 +875,11 @@ on($("#memberCorrectionNone"), "click", () => confirmMemberCorrection());
 on($("#removeMemberAction"), "click", () => removeMember(state.memberEditing, $("#removeMemberAction")));
 on($("#newCategoryButton"), "click", () => openCategoryModal());
 on($("#emojiPickerButton"), "click", openEmojiPicker);
+on($("#deleteCategoryModalButton"), "click", async () => {
+  const category = state.categoryEditing;
+  if (!category || !(await deleteCategory(category))) return;
+  closeEmojiPicker(); dialogs.categoryModal.close();
+});
 on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.googleDisplayName || state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
