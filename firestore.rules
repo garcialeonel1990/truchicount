@@ -49,8 +49,8 @@ service cloud.firestore {
     }
 
     function isOwner(countId) {
-      return isCountMember(countId)
-        && get(/databases/$(database)/documents/counts/$(countId)).data.ownerUid == request.auth.uid;
+      // Todos los integrantes registrados activos administran el Count.
+      return isCountMember(countId);
     }
 
     function hasActiveInvite(token, countId) {
@@ -62,7 +62,9 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow create, read, update: if isSuperAdmin()
+      // El alias global se resuelve desde los Members registrados del Count.
+      allow read: if isSuperAdmin() || signedIn();
+      allow create, update: if isSuperAdmin()
         || (signedIn() && request.auth.uid == uid);
       allow delete: if isSuperAdmin();
     }
@@ -95,6 +97,62 @@ service cloud.firestore {
         allow create, update: if isSuperAdmin() || isActiveCountMember(countId);
         allow delete: if isSuperAdmin();
       }
+
+      match /members/{memberId} {
+        allow read: if isSuperAdmin() || isCountMember(countId);
+        // Los manuales no poseen Auth; sólo un integrante registrado puede
+        // crearlos. Los registrados llegan exclusivamente por una invitación.
+        allow create: if isSuperAdmin() || (
+          (isActiveCountMember(countId)
+            || (isActiveCountAfter(countId) && isCountMemberAfter(countId)))
+          && request.resource.data.countId == countId
+          && request.resource.data.active == true
+          && request.resource.data.createdBy == request.auth.uid
+          && (
+            (request.resource.data.type == "manual"
+              && request.resource.data.userId == null
+              && request.resource.data.role == "member")
+            || (request.resource.data.type == "registered"
+              && request.resource.data.userId == request.auth.uid
+              && request.resource.data.role == "owner"
+              && (getAfter(/databases/$(database)/documents/counts/$(countId)).data.ownerUid == request.auth.uid
+                || hasActiveInvite(request.resource.data.inviteToken, countId)))
+          )
+        );
+        allow update: if isSuperAdmin() || (isActiveCountMember(countId)
+          && resource.data.active == true
+          && ((resource.data.type == "manual"
+              && request.resource.data.type == "manual"
+              && request.resource.data.userId == null
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "alias", "normalizedAlias", "active", "removedAt", "removedBy",
+                "updatedAt", "updatedBy"
+              ]))
+            || (resource.data.type == "registered"
+              && request.resource.data.type == "registered"
+              && request.resource.data.userId == resource.data.userId
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "active", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"
+              ])))
+          || (signedIn()
+            && isActiveCountMember(countId)
+            && resource.data.type == "manual"
+            && resource.data.active == false
+            && request.resource.data.active == true
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              "alias", "normalizedAlias", "active", "reactivatedAt", "reactivatedBy",
+              "removedAt", "removedBy", "updatedAt", "updatedBy"
+            ]))
+          || (signedIn()
+            && resource.data.type == "registered"
+            && resource.data.userId == request.auth.uid
+            && resource.data.active == false
+            && request.resource.data.active == true
+            && isActiveCount(countId)
+            && hasActiveInvite(request.resource.data.inviteToken, countId));
+        allow delete: if isSuperAdmin() || (isActiveCountMember(countId)
+          && resource.data.active == true);
+      }
     }
 
     match /memberships/{membershipId} {
@@ -112,7 +170,6 @@ service cloud.firestore {
       allow update: if isSuperAdmin()
         || (isOwner(resource.data.countId)
           && isActiveCount(resource.data.countId)
-          && resource.data.role != "owner"
           && resource.data.status == "active"
           && request.resource.data.status == "inactive"
           && request.resource.data.diff(resource.data).affectedKeys()
@@ -125,7 +182,7 @@ service cloud.firestore {
           && isActiveCount(resource.data.countId)
           && hasActiveInvite(request.resource.data.inviteToken, resource.data.countId)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]));
+            .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]));
       allow delete: if isSuperAdmin();
     }
 
@@ -165,9 +222,7 @@ service cloud.firestore {
         && (
           request.resource.data.entityType == "category"
           || isActiveCountMember(request.resource.data.countId)
-          || (isActiveCountMemberAfter(request.resource.data.countId)
-            && request.resource.data.entityType == "count"
-            && request.resource.data.action == "create")
+          || isActiveCountMemberAfter(request.resource.data.countId)
           || (isCountMember(request.resource.data.countId)
             && request.resource.data.entityType == "count"
             && request.resource.data.action == "unarchiveCount"

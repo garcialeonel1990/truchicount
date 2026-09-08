@@ -1,25 +1,25 @@
 export function calculateNetBalances(members, expenses, settlements) {
   const balances = {};
   members.forEach((member) => {
-    balances[member.uid] ??= {};
+    balances[member.id] ??= {};
   });
 
   expenses.filter((expense) => expense.status === "active").forEach((expense) => {
     const currency = expense.currency;
-    balances[expense.payerUid] ??= {};
-    balances[expense.payerUid][currency] = (balances[expense.payerUid][currency] ?? 0) + expense.amountMinor;
-    Object.entries(expense.participantShares ?? {}).forEach(([uid, share]) => {
-      balances[uid] ??= {};
-      balances[uid][currency] = (balances[uid][currency] ?? 0) - share;
+    balances[expense.payerMemberId] ??= {};
+    balances[expense.payerMemberId][currency] = (balances[expense.payerMemberId][currency] ?? 0) + expense.amountMinor;
+    Object.entries(expense.participantShares ?? {}).forEach(([memberId, share]) => {
+      balances[memberId] ??= {};
+      balances[memberId][currency] = (balances[memberId][currency] ?? 0) - share;
     });
   });
 
   settlements.filter((settlement) => settlement.status === "active").forEach((settlement) => {
-    const { currency, amountMinor, fromUid, toUid } = settlement;
-    balances[fromUid] ??= {};
-    balances[toUid] ??= {};
-    balances[fromUid][currency] = (balances[fromUid][currency] ?? 0) + amountMinor;
-    balances[toUid][currency] = (balances[toUid][currency] ?? 0) - amountMinor;
+    const { currency, amountMinor, fromMemberId, toMemberId } = settlement;
+    balances[fromMemberId] ??= {};
+    balances[toMemberId] ??= {};
+    balances[fromMemberId][currency] = (balances[fromMemberId][currency] ?? 0) + amountMinor;
+    balances[toMemberId][currency] = (balances[toMemberId][currency] ?? 0) - amountMinor;
   });
 
   return balances;
@@ -31,13 +31,13 @@ export function simplifyDebts(balances) {
 
   currencies.forEach((currency) => {
     const debtors = Object.entries(balances)
-      .map(([uid, totals]) => ({ uid, amount: -(totals[currency] ?? 0) }))
+      .map(([memberId, totals]) => ({ memberId, amount: -(totals[currency] ?? 0) }))
       .filter((entry) => entry.amount > 0)
-      .sort((a, b) => b.amount - a.amount || a.uid.localeCompare(b.uid));
+      .sort((a, b) => b.amount - a.amount || a.memberId.localeCompare(b.memberId));
     const creditors = Object.entries(balances)
-      .map(([uid, totals]) => ({ uid, amount: totals[currency] ?? 0 }))
+      .map(([memberId, totals]) => ({ memberId, amount: totals[currency] ?? 0 }))
       .filter((entry) => entry.amount > 0)
-      .sort((a, b) => b.amount - a.amount || a.uid.localeCompare(b.uid));
+      .sort((a, b) => b.amount - a.amount || a.memberId.localeCompare(b.memberId));
 
     let debtorIndex = 0;
     let creditorIndex = 0;
@@ -45,7 +45,7 @@ export function simplifyDebts(balances) {
       const debtor = debtors[debtorIndex];
       const creditor = creditors[creditorIndex];
       const amountMinor = Math.min(debtor.amount, creditor.amount);
-      if (amountMinor) suggestions.push({ fromUid: debtor.uid, toUid: creditor.uid, amountMinor, currency });
+      if (amountMinor) suggestions.push({ fromMemberId: debtor.memberId, toMemberId: creditor.memberId, amountMinor, currency });
       debtor.amount -= amountMinor;
       creditor.amount -= amountMinor;
       if (!debtor.amount) debtorIndex += 1;
@@ -56,6 +56,6 @@ export function simplifyDebts(balances) {
   return suggestions;
 }
 
-export function actionsForUser(suggestions, uid) {
-  return suggestions.filter((suggestion) => suggestion.fromUid === uid || suggestion.toUid === uid);
+export function actionsForUser(suggestions, memberId) {
+  return suggestions.filter((suggestion) => suggestion.fromMemberId === memberId || suggestion.toMemberId === memberId);
 }

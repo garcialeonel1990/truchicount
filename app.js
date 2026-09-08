@@ -1,12 +1,12 @@
-import { completeRedirectSignIn, signInWithGoogle, signOutUser, updateDisplayName, watchAuth } from "./firebase.js";
-import { archiveCount, createCategory, createCount, createInvite, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, removeCountMember, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
+import { archiveCount, createCategory, createCount, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, removeCountMember, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateManualMember, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
-const unsubscribers = { app: [], detail: [] };
-const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const state = { user: null, profile: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
+const unsubscribers = { app: [], detail: [], profiles: [] };
+const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "memberChoiceModal", "memberActionModal", "manualMemberModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -15,7 +15,9 @@ function esc(value) { return String(value || "").replace(/&/g, "&amp;").replace(
 function dateFrom(value) { return value && value.toDate ? value.toDate() : value ? new Date(value) : null; }
 function dateISO(value) { const date = dateFrom(value); return date ? date.toISOString().slice(0, 10) : ""; }
 function prettyDate(value) { const date = dateFrom(value); return date ? new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(date) : "Sin fecha"; }
-function nameOf(uid) { return state.members.find((member) => member.uid === uid)?.displayNameSnapshot || "Integrante"; }
+function memberName(member) { return member?.type === "manual" ? member.alias : state.memberProfiles[member?.userId]?.alias || member?.aliasSnapshot || "Integrante"; }
+function nameOf(memberId) { return memberName(state.members.find((member) => member.id === memberId)); }
+function activeMembers() { return state.members.filter((member) => member.active); }
 function activeExpenses() { return state.expenses.filter((expense) => expense.status === "active"); }
 function activeCategories() { return state.categories.filter((category) => category.status === "active"); }
 function categoryFor(id) { return state.categories.find((category) => category.id === id); }
@@ -26,7 +28,7 @@ function categoryDisplay(categoryId, fallbackName = "") {
 function categoryEmoji(category) { return category?.emoji || icon(category?.name); }
 function balances() { return calculateNetBalances(state.members, state.expenses, state.settlements); }
 function isReadOnly() { return state.count?.status === "archived"; }
-function canManageMembers() { return state.count?.ownerUid === state.user?.uid || state.user?.email === "garcialeonel1990@gmail.com"; }
+function canManageMembers() { return activeMembers().some((member) => member.type === "registered" && member.userId === state.user?.uid); }
 function pendingCurrencies(balance = balances()) { return [...new Set(Object.values(balance).flatMap((byCurrency) => Object.entries(byCurrency).filter(([, amount]) => amount !== 0).map(([currency]) => currency)))].sort(); }
 function setBusy(button, busy, label, busyLabel = "Guardando…") { button.disabled = busy; button.textContent = busy ? busyLabel : label; }
 function error(el, exception, fallback) { console.error(exception); el.textContent = exception?.message || fallback; el.hidden = false; }
@@ -35,7 +37,7 @@ function showToast(message) { const toast = $("#toast"); clearTimeout(state.toas
 
 completeRedirectSignIn().catch((exception) => error($("#authError"), exception, "No se pudo completar el inicio de sesión."));
 watchAuth(async (user) => {
-  stop("app"); stop("detail");
+  stop("app"); stop("detail"); stop("profiles");
   state.user = user; state.profile = null; state.counts = []; state.count = null; state.homeTab = "active";
   $("#loginScreen").hidden = Boolean(user); $("#appShell").hidden = !user;
   if (!user) return;
@@ -71,7 +73,7 @@ async function acceptInvite(token) {
   }
 }
 function renderHeader() {
-  const name = state.profile?.displayName || state.user?.displayName || state.user?.email || "Usuario";
+  const name = state.profile?.alias || state.profile?.displayName || state.user?.displayName || state.user?.email || "Usuario";
   $("#welcomeText").textContent = "Hola, " + name.split(" ")[0];
   $("#accountButton").textContent = name.split(/\s+/).filter(Boolean).slice(0, 2).map((piece) => piece[0]).join("").toUpperCase();
 }
@@ -79,7 +81,7 @@ function showScreen(name) {
   $("#homeScreen").hidden = name !== "home";
   $("#detailScreen").hidden = name !== "detail";
   $("#settingsScreen").hidden = name !== "settings";
-  if (name === "home") { stop("detail"); state.count = null; renderHome(); }
+  if (name === "home") { stop("detail"); stop("profiles"); state.count = null; renderHome(); }
   if (name === "settings") renderSettings();
 }
 
@@ -106,20 +108,30 @@ function renderHome() {
 }
 
 function openCount(id) {
-  stop("detail");
+  stop("detail"); stop("profiles"); state.memberProfiles = {};
   state.count = state.counts.find((count) => count.id === id) || { id: id, name: "Cargando…" };
   state.members = []; state.expenses = []; state.settlements = [];
   watch("detail", watchCount(id, (count) => { state.count = count; renderDetail(); }, detailError));
-  watch("detail", watchMembers(id, (members) => { state.members = members.sort((a, b) => a.displayNameSnapshot.localeCompare(b.displayNameSnapshot, "es")); renderDetail(); }, detailError));
+  watch("detail", watchMembers(id, (members) => { state.members = members; refreshMemberProfiles(); renderDetail(); }, detailError));
   watch("detail", watchExpenses(id, (items) => { state.expenses = items; renderDetail(); }, detailError));
   watch("detail", watchSettlements(id, (items) => { state.settlements = items; renderDetail(); }, detailError));
   showScreen("detail");
+}
+function refreshMemberProfiles() {
+  stop("profiles");
+  const profiles = {};
+  state.members.filter((member) => member.type === "registered" && member.userId).forEach((member) => {
+    watch("profiles", watchUser(member.userId, (profile) => { state.memberProfiles[member.userId] = profile || {}; renderDetail(); }, detailError));
+    profiles[member.userId] = state.memberProfiles[member.userId] || {};
+  });
+  state.memberProfiles = profiles;
 }
 function detailError(exception) { console.error(exception); $("#expenseList").innerHTML = '<section class="empty-state"><strong>No pudimos cargar este Count.</strong><span>Revisá tu conexión e intentá de nuevo.</span></section>'; }
 function renderDetail() {
   if (!state.count) return;
   $("#countTitle").textContent = state.count.name;
-  $("#memberSummary").textContent = state.members.length ? state.members.length + (state.members.length === 1 ? " integrante · " : " integrantes · ") + state.members.map((member) => member.displayNameSnapshot).join(", ") : "Cargando integrantes…";
+  const members = activeMembers();
+  $("#memberSummary").textContent = members.length ? members.length + (members.length === 1 ? " integrante · " : " integrantes · ") + members.map(memberName).join(", ") : "Cargando integrantes…";
   const archived = isReadOnly();
   $("#shareButton").hidden = archived;
   $("#addExpenseButton").hidden = archived;
@@ -132,7 +144,8 @@ function totals(items) { return items.reduce((all, item) => Object.assign(all, {
 function moneyGroups(items) { const values = Object.entries(totals(items)); return values.length ? values.map(([currency, amount]) => formatMoney(amount, currency)).join(" · ") : formatMoney(0); }
 function renderExpenses() {
   const all = activeExpenses();
-  $("#totalCards").innerHTML = '<article><span>Vos pagaste</span><strong>' + moneyGroups(all.filter((item) => item.payerUid === state.user.uid)) + '</strong></article><article><span>Total del Count</span><strong>' + moneyGroups(all) + "</strong></article>";
+  const myMemberId = activeMembers().find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
+  $("#totalCards").innerHTML = '<article><span>Vos pagaste</span><strong>' + moneyGroups(all.filter((item) => item.payerMemberId === myMemberId)) + '</strong></article><article><span>Total del Count</span><strong>' + moneyGroups(all) + "</strong></article>";
   const list = $("#expenseList"); list.replaceChildren();
   const items = all.sort((a, b) => dateISO(b.expenseDate).localeCompare(dateISO(a.expenseDate)));
   if (!items.length) {
@@ -142,7 +155,7 @@ function renderExpenses() {
   items.forEach((expense) => {
     const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
     const card = document.createElement("button"); card.className = "expense-card"; card.type = "button";
-    card.innerHTML = '<span class="expense-icon">' + category.emoji + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>' + esc(category.name) + " · " + prettyDate(expense.expenseDate) + '</small><small>Pagó ' + esc(expense.payerNameSnapshot) + " · " + expense.participantUids.length + ' participantes</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
+    card.innerHTML = '<span class="expense-icon">' + category.emoji + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>' + esc(category.name) + " · " + prettyDate(expense.expenseDate) + '</small><small>Pagó ' + esc(nameOf(expense.payerMemberId)) + " · " + expense.participantMemberIds.length + ' participantes</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
     on(card, "click", () => openExpenseDetail(expense)); list.append(card);
   });
 }
@@ -151,7 +164,8 @@ function renderBalances() {
   const computed = balances();
   const suggestions = simplifyDebts(computed);
   const actions = $("#balanceActions"); actions.replaceChildren();
-  const mine = actionsForUser(suggestions, state.user.uid);
+  const myMemberId = activeMembers().find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
+  const mine = actionsForUser(suggestions, myMemberId);
   if (!mine.length) {
     actions.innerHTML = '<section class="settled-state"><strong>Todo saldado 🎉</strong><span>Nadie le debe nada a nadie.</span></section>';
     if (!isReadOnly()) actions.insertAdjacentHTML("beforeend", '<p class="archive-ready">Este Count ya se puede archivar.</p>');
@@ -159,8 +173,8 @@ function renderBalances() {
   else {
     const title = document.createElement("h2"); title.className = "section-title"; title.textContent = "Qué tenés que hacer"; actions.append(title);
     mine.forEach((suggestion) => {
-      const pays = suggestion.fromUid === state.user.uid;
-      const other = nameOf(pays ? suggestion.toUid : suggestion.fromUid);
+      const pays = suggestion.fromMemberId === myMemberId;
+      const other = nameOf(pays ? suggestion.toMemberId : suggestion.fromMemberId);
       const card = document.createElement("button"); card.type = "button"; card.className = "settlement-card";
       card.innerHTML = '<span class="settlement-icon">' + (pays ? "↗" : "↙") + '</span><span><strong>' + (pays ? "Pagale a " : "Reclamale a ") + esc(other) + '</strong><small>' + formatMoney(suggestion.amountMinor, suggestion.currency) + '</small></span><span class="chevron">›</span>';
       if (!isReadOnly()) on(card, "click", () => openSettlementModal(suggestion)); else card.disabled = true;
@@ -168,11 +182,12 @@ function renderBalances() {
     });
   }
   const list = $("#balanceList"); list.replaceChildren();
-  state.members.forEach((member) => {
-    const values = Object.entries(computed[member.uid] || {});
+  activeMembers().forEach((member) => {
+    const values = Object.entries(computed[member.id] || {});
     const amounts = values.length ? values.map(([currency, amount]) => '<span class="' + (amount > 0 ? "positive" : amount < 0 ? "negative" : "") + '">' + (amount > 0 ? "+" : amount < 0 ? "−" : "") + formatMoney(Math.abs(amount), currency) + "</span>").join("") : "<span>" + formatMoney(0) + "</span>";
     const card = document.createElement("article"); card.className = "balance-card";
-    card.innerHTML = '<span class="balance-avatar">' + esc(member.displayNameSnapshot.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(member.displayNameSnapshot) + '</strong><small>' + (member.uid === state.user.uid ? "Vos" : "Integrante") + '</small></span><span class="balance-amount">' + amounts + "</span>";
+    const name = memberName(member);
+    card.innerHTML = '<span class="balance-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + (member.userId === state.user.uid ? "Vos" : "Integrante") + '</small></span><span class="balance-amount">' + amounts + "</span>";
     list.append(card);
   });
 }
@@ -259,19 +274,21 @@ function openCountModal() {
 }
 function openExpenseModal(expense) {
   if (isReadOnly()) return;
-  if (!state.members.length || !activeCategories().length) return;
+  if (!activeMembers().length || !activeCategories().length) return;
   state.editing = expense || null; $("#expenseForm").reset(); $("#expenseError").hidden = true;
   $("#expenseModalTitle").textContent = expense ? "Editar gasto" : "Nuevo gasto";
   const enabled = state.profile?.enabledCurrencies || [DEFAULT_CURRENCY];
   putOptions($("#expenseCurrency"), enabled.map((code) => ({ id: code, name: code })), expense?.currency || DEFAULT_CURRENCY);
   const categories = activeCategories();
   putOptions($("#expenseCategory"), categories.map((item) => ({ id: item.id, name: categoryEmoji(item) + " " + item.name })), expense?.categoryId || categories[0].id);
-  putOptions($("#expensePayer"), state.members.map((item) => ({ id: item.uid, name: item.displayNameSnapshot })), expense?.payerUid || state.user.uid);
+  const members = activeMembers();
+  const myMemberId = members.find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
+  putOptions($("#expensePayer"), members.map((item) => ({ id: item.id, name: memberName(item) })), expense?.payerMemberId || myMemberId);
   const checks = $("#participantChecks"); checks.replaceChildren();
-  state.members.forEach((member) => {
-    const selected = expense ? expense.participantUids.includes(member.uid) : true;
+  members.forEach((member) => {
+    const selected = expense ? expense.participantMemberIds.includes(member.id) : true;
     const row = document.createElement("label"); row.className = "participant-row";
-    row.innerHTML = '<input type="checkbox" name="participant" value="' + member.uid + '" ' + (selected ? "checked" : "") + '/><span>' + esc(member.displayNameSnapshot) + '</span><span class="checkmark">✓</span>';
+    row.innerHTML = '<input type="checkbox" name="participant" value="' + member.id + '" ' + (selected ? "checked" : "") + '/><span>' + esc(memberName(member)) + '</span><span class="checkmark">✓</span>';
     checks.append(row);
   });
   const form = $("#expenseForm");
@@ -283,9 +300,9 @@ function renderMerchantOptions() { const list = $("#merchantOptions"); if (!list
 function updateSplitPreview() { const selected = document.querySelectorAll("[name='participant']:checked").length; const minor = parseMoney($("#expenseForm").elements.amount.value); $("#splitPreview").textContent = selected ? formatMoney(minor ? Math.floor(minor / selected) : 0, $("#expenseCurrency").value) + " cada uno" : "Elegí al menos una persona"; }
 function openExpenseDetail(expense) {
   state.selectedExpense = expense;
-  const participants = expense.participantUids.map(nameOf).map(esc).join(", ");
+  const participants = expense.participantMemberIds.map(nameOf).map(esc).join(", ");
   const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
-  $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + category.emoji + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Pagó</dt><dd>' + esc(expense.payerNameSnapshot) + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
+  $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + category.emoji + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Pagó</dt><dd>' + esc(nameOf(expense.payerMemberId)) + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
   $("#editExpenseButton").hidden = isReadOnly();
   $("#deleteExpenseButton").hidden = isReadOnly();
   dialogs.expenseDetailModal.showModal();
@@ -293,8 +310,9 @@ function openExpenseDetail(expense) {
 function openSettlementModal(suggestion) {
   if (isReadOnly()) return;
   state.selectedSettlement = suggestion;
-  $("#settlementContent").innerHTML = '<p class="eyebrow">Liquidación</p><h2>' + esc(nameOf(suggestion.fromUid)) + " le paga a " + esc(nameOf(suggestion.toUid)) + '</h2><p class="expense-detail-amount">' + formatMoney(suggestion.amountMinor, suggestion.currency) + '</p><p class="section-copy">Esto registra un pago real y actualiza los balances.</p>';
-  $("#confirmSettlementButton").textContent = state.user.uid === suggestion.fromUid ? "Marcar como pagado" : "Marcar como saldado"; dialogs.settlementModal.showModal();
+  $("#settlementContent").innerHTML = '<p class="eyebrow">Liquidación</p><h2>' + esc(nameOf(suggestion.fromMemberId)) + " le paga a " + esc(nameOf(suggestion.toMemberId)) + '</h2><p class="expense-detail-amount">' + formatMoney(suggestion.amountMinor, suggestion.currency) + '</p><p class="section-copy">Esto registra un pago real y actualiza los balances.</p>';
+  const myMemberId = activeMembers().find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
+  $("#confirmSettlementButton").textContent = myMemberId === suggestion.fromMemberId ? "Marcar como pagado" : "Marcar como saldado"; dialogs.settlementModal.showModal();
 }
 async function openInviteModal() {
   if (isReadOnly()) { showToast("Este Count está archivado y no acepta nuevos miembros."); return; }
@@ -323,30 +341,59 @@ function openMemberModal() {
   $("#memberError").hidden = true;
   const list = $("#memberList");
   list.replaceChildren();
-  state.members.forEach((member) => {
+  activeMembers().forEach((member) => {
     const row = document.createElement("article");
-    row.className = "member-row";
-    const isOwner = member.role === "owner" || member.uid === state.count?.ownerUid;
-    const canRemove = canManageMembers() && !isOwner && member.uid !== state.user.uid;
-    row.innerHTML = '<span class="member-avatar">' + esc(member.displayNameSnapshot.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(member.displayNameSnapshot) + '</strong><small>' + (isOwner ? "Owner" : "Integrante") + '</small></span>' + (canRemove ? '<button class="member-remove-button" type="button">Quitar</button>' : "");
-    const removeButton = row.querySelector("button");
-    if (removeButton) on(removeButton, "click", () => removeMember(member, removeButton));
+    row.className = "member-row member-row-action";
+    const name = memberName(member);
+    row.innerHTML = '<span class="member-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + (member.role === "owner" ? "Owner" : "Integrante") + '</small></span><span class="chevron">›</span>';
+    on(row, "click", () => openMemberActions(member));
     list.append(row);
   });
+  $("#memberAddButton").disabled = isReadOnly();
   dialogs.memberModal.showModal();
 }
 
+function memberRemovalReason(member) {
+  if (isReadOnly()) return "Este Count está archivado.";
+  if (!canManageMembers()) return "No tenés permisos para modificar integrantes.";
+  if (Object.values(balances()[member.id] || {}).some((amount) => amount !== 0)) return "Este integrante debe tener saldo $0 en todas las monedas para poder quitarlo.";
+  if (member.type === "registered" && activeMembers().filter((item) => item.type === "registered").length < 2) return "No podés quitar al último usuario registrado del Count porque nadie podría administrarlo.";
+  return "";
+}
+
+function openMemberActions(member) {
+  state.memberEditing = member;
+  $("#memberActionTitle").textContent = memberName(member);
+  $("#editManualMemberAction").hidden = member.type !== "manual" || isReadOnly() || !canManageMembers();
+  const remove = $("#removeMemberAction");
+  const reason = memberRemovalReason(member);
+  remove.disabled = Boolean(reason);
+  $("#memberActionReason").textContent = reason;
+  $("#memberActionReason").hidden = !reason;
+  dialogs.memberActionModal.showModal();
+}
+
+function openManualMemberModal(member = null) {
+  state.memberEditing = member;
+  $("#manualMemberForm").reset();
+  $("#manualMemberTitle").textContent = member ? "Editar alias" : "Agregar integrante";
+  $("#manualMemberForm").elements.alias.value = member?.alias || "";
+  $("#manualMemberError").hidden = true;
+  dialogs.manualMemberModal.showModal();
+  $("#manualMemberForm").elements.alias.focus();
+}
+
 async function removeMember(member, button) {
-  if (!confirm("¿Quitar a " + member.displayNameSnapshot + " de este Count?\n\nSólo se puede quitar a alguien que no tenga saldos pendientes.")) return;
-  $("#memberError").hidden = true;
-  setBusy(button, true, "Quitar");
+  if (!confirm("¿Quitar a " + memberName(member) + " del Count?\n\nSi tiene movimientos históricos, se conservarán.")) return;
+  $("#memberActionReason").hidden = true;
+  setBusy(button, true, "Quitar integrante");
   try {
-    await removeCountMember({ countId: state.count.id, membership: member, actor: state.user });
-    button.closest(".member-row")?.remove();
-    showToast("✓ Integrante eliminado");
+    await removeCountMember({ countId: state.count.id, member, actor: state.user });
+    dialogs.memberActionModal.close(); dialogs.memberModal.close();
+    showToast("✓ Integrante quitado");
   } catch (exception) {
-    error($("#memberError"), exception, "No pudimos quitar al integrante.");
-    setBusy(button, false, "Quitar");
+    error($("#memberActionReason"), exception, "No pudimos quitar al integrante.");
+    setBusy(button, false, "Quitar integrante");
   }
 }
 
@@ -365,10 +412,15 @@ function openUnarchiveConfirmation() {
 }
 
 on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true; const button = $("#googleLoginButton"); setBusy(button, true, "Continuar con Google"); try { await signInWithGoogle(); } catch (exception) { error($("#authError"), exception, "No se pudo iniciar sesión."); setBusy(button, false, "Continuar con Google"); } });
-on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal); on($("#memberInviteButton"), "click", () => { dialogs.memberModal.close(); openInviteModal(); });
+on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal);
+on($("#memberAddButton"), "click", () => dialogs.memberChoiceModal.showModal());
+on($("#inviteMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); dialogs.memberModal.close(); openInviteModal(); });
+on($("#manualMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); openManualMemberModal(); });
+on($("#editManualMemberAction"), "click", () => { dialogs.memberActionModal.close(); openManualMemberModal(state.memberEditing); });
+on($("#removeMemberAction"), "click", () => removeMember(state.memberEditing, $("#removeMemberAction")));
 on($("#newCategoryButton"), "click", () => openCategoryModal());
 on($("#emojiPickerButton"), "click", openEmojiPicker);
-on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
+on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
@@ -402,7 +454,7 @@ on($("#expenseForm"), "submit", async (event) => {
   if (!participants.length || amountMinor <= 0) { $("#expenseError").textContent = participants.length ? "El monto tiene que ser mayor a cero." : "Elegí al menos una persona."; $("#expenseError").hidden = false; return; }
   setBusy(button, true, state.editing ? "Guardar cambios" : "Guardar gasto");
   try {
-    await saveExpense({ countId: state.count.id, form: { title: form.elements.title.value, merchantName: form.elements.merchant.value, amountMinor, currency: form.elements.currency.value, expenseDate: form.elements.expenseDate.value, categoryId: form.elements.category.value, payerUid: form.elements.payer.value, participantUids: participants, notes: form.elements.notes.value }, members: state.members, categories: state.categories, actor: state.user, expenseId: state.editing?.id, before: state.editing });
+    await saveExpense({ countId: state.count.id, form: { title: form.elements.title.value, merchantName: form.elements.merchant.value, amountMinor, currency: form.elements.currency.value, expenseDate: form.elements.expenseDate.value, categoryId: form.elements.category.value, payerMemberId: form.elements.payer.value, participantMemberIds: participants, notes: form.elements.notes.value }, members: state.members, categories: state.categories, actor: state.user, expenseId: state.editing?.id, before: state.editing });
     dialogs.expenseModal.close();
   } catch (exception) { error($("#expenseError"), exception, "No pudimos guardar el gasto. Revisá tu conexión e intentá nuevamente."); } finally { setBusy(button, false, state.editing ? "Guardar cambios" : "Guardar gasto"); }
 });
@@ -413,6 +465,23 @@ on($("#deleteExpenseButton"), "click", async () => {
 });
 on($("#confirmSettlementButton"), "click", async () => {
   const button = $("#confirmSettlementButton"); setBusy(button, true, "Marcar como pagado"); try { await createSettlement({ countId: state.count.id, suggestion: state.selectedSettlement, members: state.members, actor: state.user }); dialogs.settlementModal.close(); } catch (exception) { alert("No pudimos registrar el pago."); console.error(exception); } finally { setBusy(button, false, "Marcar como pagado"); }
+});
+on($("#manualMemberForm"), "submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget; const button = event.submitter; const member = state.memberEditing;
+  $("#manualMemberError").hidden = true;
+  setBusy(button, true, member ? "Guardar" : "Agregar");
+  try {
+    if (member) {
+      await updateManualMember({ countId: state.count.id, member, alias: form.elements.alias.value, actor: state.user });
+      showToast("✓ Alias actualizado");
+    } else {
+      const result = await createManualMember({ countId: state.count.id, alias: form.elements.alias.value, actor: state.user });
+      showToast(result.reactivated ? "✓ " + form.elements.alias.value.trim() + " fue reactivada." : "✓ Integrante agregado");
+    }
+    dialogs.manualMemberModal.close();
+  } catch (exception) { error($("#manualMemberError"), exception, "No pudimos guardar el integrante."); }
+  finally { setBusy(button, false, member ? "Guardar" : "Agregar"); }
 });
 on($("#archiveCountAction"), "click", () => { if (!$("#archiveCountAction").disabled) openArchiveConfirmation(); });
 on($("#unarchiveCountAction"), "click", openUnarchiveConfirmation);
@@ -446,5 +515,5 @@ on($("#confirmUnarchiveButton"), "click", async () => {
 });
 on($("#copyInviteButton"), "click", async () => { try { await navigator.clipboard.writeText($("#inviteLink").value); $("#inviteStatus").textContent = "Link copiado."; $("#inviteStatus").hidden = false; } catch { $("#inviteStatus").textContent = "Copialo manualmente desde el campo."; $("#inviteStatus").hidden = false; } });
 on($("#shareInviteButton"), "click", async () => { const url = $("#inviteLink").value; if (navigator.share) { try { await navigator.share({ title: state.count?.name || "TruchiCount", text: "Sumate a mi Count en TruchiCount", url }); } catch {} } else { await navigator.clipboard.writeText(url); $("#inviteStatus").textContent = "Link copiado."; $("#inviteStatus").hidden = false; } });
-on($("#accountForm"), "submit", async (event) => { event.preventDefault(); const name = $("#accountName").value.trim(); const button = event.submitter; if (!name) return; $("#accountError").hidden = true; setBusy(button, true, "Guardar"); try { await updateDisplayName(name); await updateUserSettings(state.user.uid, { displayName: name }); dialogs.accountModal.close(); } catch (exception) { error($("#accountError"), exception, "No pudimos guardar el nombre."); } finally { setBusy(button, false, "Guardar"); } });
+on($("#accountForm"), "submit", async (event) => { event.preventDefault(); const name = $("#accountName").value.trim(); const button = event.submitter; if (!name) return; $("#accountError").hidden = true; setBusy(button, true, "Guardar"); try { await updateUserSettings(state.user.uid, { alias: name }); dialogs.accountModal.close(); } catch (exception) { error($("#accountError"), exception, "No pudimos guardar el alias."); } finally { setBusy(button, false, "Guardar"); } });
 on($("#logoutButton"), "click", async () => { if (confirm("¿Querés cerrar sesión?")) await signOutUser(); });

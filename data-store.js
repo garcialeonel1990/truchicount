@@ -34,15 +34,19 @@ function audit(batch, { entityType, entityId, countId, action, actor, before = n
 export async function ensureUser(user) {
   const ref = doc(db, "users", user.uid);
   const current = await getDoc(ref);
+  const googleDisplayName = user.displayName || user.email?.split("@")[0] || "Usuario";
   const shared = {
     uid: user.uid,
-    displayName: user.displayName || user.email?.split("@")[0] || "Usuario",
+    googleDisplayName,
     email: user.email || "",
     updatedAt: serverTimestamp(),
     lastLoginAt: serverTimestamp(),
   };
-  if (current.exists()) return setDoc(ref, shared, { merge: true });
-  return setDoc(ref, { ...shared, defaultCurrency: DEFAULT_CURRENCY, enabledCurrencies: [DEFAULT_CURRENCY], createdAt: serverTimestamp() });
+  if (current.exists()) {
+    const legacyAlias = current.data().alias || current.data().displayName;
+    return setDoc(ref, { ...shared, ...(legacyAlias ? { alias: legacyAlias } : { alias: googleDisplayName }) }, { merge: true });
+  }
+  return setDoc(ref, { ...shared, alias: googleDisplayName, defaultCurrency: DEFAULT_CURRENCY, enabledCurrencies: [DEFAULT_CURRENCY], createdAt: serverTimestamp() });
 }
 
 export const watchUser = (uid, onChange, onError) => onSnapshot(doc(db, "users", uid), (snap) => onChange(snap.exists() ? toItem(snap) : null), onError);
@@ -88,16 +92,21 @@ function dateValue(value) {
 export async function createCount({ name, user, defaultCurrency = DEFAULT_CURRENCY }) {
   const count = doc(collection(db, "counts"));
   const membership = doc(db, "memberships", `${count.id}_${user.uid}`);
+  const member = doc(db, "counts", count.id, "members", `registered_${user.uid}`);
   const batch = writeBatch(db);
   batch.set(count, { name, defaultCurrency, ownerUid: user.uid, status: "active", createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, schemaVersion: 1 });
-  batch.set(membership, { countId: count.id, uid: user.uid, role: "owner", status: "active", displayNameSnapshot: user.displayName || user.email || "Usuario", emailSnapshot: user.email || "", joinedAt: serverTimestamp(), joinedByInvite: false, createdAt: serverTimestamp() });
+  batch.set(member, { memberId: member.id, countId: count.id, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
+  batch.set(membership, { countId: count.id, uid: user.uid, memberId: member.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: false, createdAt: serverTimestamp() });
   audit(batch, { entityType: "count", entityId: count.id, countId: count.id, action: "create", actor: user, after: { name, defaultCurrency } });
+  audit(batch, { entityType: "member", entityId: member.id, countId: count.id, action: "createMember", actor: user, after: { type: "registered", userId: user.uid } });
   await batch.commit();
   return count.id;
 }
 
 export const watchCount = (countId, onChange, onError) => onSnapshot(doc(db, "counts", countId), (snap) => onChange(snap.exists() ? toItem(snap) : null), onError);
-export const watchMembers = (countId, onChange, onError) => onSnapshot(query(collection(db, "memberships"), where("countId", "==", countId), where("status", "==", "active")), (snap) => onChange(snap.docs.map(toItem)), onError);
+// También observamos los inactivos para poder resolver sus alias en históricos.
+// La UI filtra los activos para formularios y gestión cotidiana.
+export const watchMembers = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "members"), (snap) => onChange(snap.docs.map(toItem)), onError);
 export const watchExpenses = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "expenses"), (snap) => onChange(snap.docs.map(toItem)), onError);
 export const watchSettlements = (countId, onChange, onError) => onSnapshot(collection(db, "counts", countId, "settlements"), (snap) => onChange(snap.docs.map(toItem)), onError);
 export const watchCategories = (onChange, onError) => onSnapshot(collection(db, "categories"), (snap) => onChange(snap.docs.map(toItem).sort((a, b) => a.name.localeCompare(b.name, "es"))), onError);
@@ -207,19 +216,20 @@ async function upsertMerchant(name, actor) {
 }
 
 export async function saveExpense({ countId, form, members, categories, actor, expenseId = null, before = null }) {
-  const payer = members.find((member) => member.uid === form.payerUid);
-  const participantUids = [...new Set(form.participantUids)];
+  const activeMembers = members.filter((member) => member.active);
+  const payer = activeMembers.find((member) => member.id === form.payerMemberId);
+  const participantMemberIds = [...new Set(form.participantMemberIds)];
   const category = categories.find((item) => item.id === form.categoryId);
-  if (!form.title?.trim() || !form.amountMinor || !payer || !category || !participantUids.length || participantUids.some((uid) => !members.some((member) => member.uid === uid))) throw new Error("Revisá los datos obligatorios del gasto.");
+  if (!form.title?.trim() || !form.amountMinor || !payer || !category || !participantMemberIds.length || participantMemberIds.some((memberId) => !activeMembers.some((member) => member.id === memberId))) throw new Error("Revisá los datos obligatorios del gasto.");
   const merchant = await upsertMerchant(form.merchantName, actor);
   const ref = expenseId ? doc(db, "counts", countId, "expenses", expenseId) : doc(collection(db, "counts", countId, "expenses"));
-  const participantShares = divideAmount(form.amountMinor, participantUids, form.payerUid);
+  const participantShares = divideAmount(form.amountMinor, participantMemberIds, form.payerMemberId);
   const data = {
     countId, title: form.title.trim(), merchantId: merchant.id, merchantNameSnapshot: merchant.name,
     categoryId: category.id, categoryNameSnapshot: category.name,
     amountMinor: form.amountMinor, currency: form.currency, expenseDate: Timestamp.fromDate(new Date(`${form.expenseDate}T12:00:00`)),
-    payerUid: payer.uid, payerNameSnapshot: payer.displayNameSnapshot,
-    participantUids, participantShares, splitType: "equal", paymentMethod: null, notes: form.notes?.trim() || "",
+    payerMemberId: payer.id,
+    participantMemberIds, participantShares, splitType: "equal", paymentMethod: null, notes: form.notes?.trim() || "",
     status: "active", updatedAt: serverTimestamp(), updatedBy: actor.uid, schemaVersion: 1,
   };
   const batch = writeBatch(db);
@@ -243,37 +253,92 @@ export async function softDeleteExpense({ countId, expense, actor }) {
 }
 
 export async function createSettlement({ countId, suggestion, members, actor }) {
-  if (!suggestion.amountMinor || suggestion.fromUid === suggestion.toUid || !members.some((item) => item.uid === suggestion.fromUid) || !members.some((item) => item.uid === suggestion.toUid)) throw new Error("No se pudo registrar esta liquidación.");
-  const from = members.find((item) => item.uid === suggestion.fromUid);
-  const to = members.find((item) => item.uid === suggestion.toUid);
+  const activeMembers = members.filter((member) => member.active);
+  if (!suggestion.amountMinor || suggestion.fromMemberId === suggestion.toMemberId || !activeMembers.some((item) => item.id === suggestion.fromMemberId) || !activeMembers.some((item) => item.id === suggestion.toMemberId)) throw new Error("No se pudo registrar esta liquidación.");
   const ref = doc(collection(db, "counts", countId, "settlements"));
-  const data = { countId, fromUid: from.uid, fromNameSnapshot: from.displayNameSnapshot, toUid: to.uid, toNameSnapshot: to.displayNameSnapshot, amountMinor: suggestion.amountMinor, currency: suggestion.currency, status: "active", createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, reversedAt: null, reversedBy: null, schemaVersion: 1 };
+  const data = { countId, fromMemberId: suggestion.fromMemberId, toMemberId: suggestion.toMemberId, amountMinor: suggestion.amountMinor, currency: suggestion.currency, status: "active", createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, reversedAt: null, reversedBy: null, schemaVersion: 1 };
   const batch = writeBatch(db);
   batch.set(ref, data);
   audit(batch, { entityType: "settlement", entityId: ref.id, countId, action: "settle", actor, after: data });
   await batch.commit();
 }
 
-export async function removeCountMember({ countId, membership, actor }) {
+export function normalizeMemberAlias(alias) {
+  return normalizeText(String(alias ?? "").trim().replace(/\s+/g, " "));
+}
+
+function cleanMemberAlias(alias) {
+  const cleanAlias = String(alias ?? "").trim().replace(/\s+/g, " ");
+  if (!cleanAlias) throw new Error("Ingresá un alias para el integrante.");
+  return { alias: cleanAlias, normalizedAlias: normalizeMemberAlias(cleanAlias) };
+}
+
+async function hasActiveMemberAlias(members, normalizedAlias, exceptMemberId = null) {
+  const registered = members.filter((member) => member.active && member.type === "registered" && member.id !== exceptMemberId);
+  const profiles = await Promise.all(registered.map((member) => getDoc(doc(db, "users", member.userId))));
+  return members.some((member) => member.active && member.id !== exceptMemberId && member.type === "manual" && member.normalizedAlias === normalizedAlias)
+    || profiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().displayName) === normalizedAlias);
+}
+
+export async function createManualMember({ countId, alias, actor }) {
+  const values = cleanMemberAlias(alias);
   const countRef = doc(db, "counts", countId);
-  const actorMembershipRef = doc(db, "memberships", `${countId}_${actor.uid}`);
-  const memberRef = doc(db, "memberships", `${countId}_${membership.uid}`);
-  const [countSnapshot, actorMembership, memberSnapshot, balances] = await Promise.all([
-    getDoc(countRef), getDoc(actorMembershipRef), getDoc(memberRef), getCountBalance(countId),
+  const membersRef = collection(db, "counts", countId, "members");
+  const [countSnapshot, membersSnapshot] = await Promise.all([
+    getDoc(countRef),
+    getDocs(membersRef),
   ]);
   if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
-  const isSuperAdmin = actor.email === "garcialeonel1990@gmail.com";
-  if (!isSuperAdmin && countSnapshot.data().ownerUid !== actor.uid && actorMembership.data()?.role !== "owner") throw new Error("Sólo el owner puede quitar integrantes.");
-  if (!memberSnapshot.exists() || memberSnapshot.data().status !== "active") throw new Error("Este integrante ya no está activo.");
-  if (memberSnapshot.data().role === "owner" || membership.uid === countSnapshot.data().ownerUid) throw new Error("No se puede quitar al owner del Count.");
-  if (Object.values(balances[membership.uid] || {}).some((amount) => amount !== 0)) throw new Error("No se puede quitar a este integrante porque todavía tiene saldo pendiente.");
+  const allMembers = membersSnapshot.docs.map(toItem);
+  if (await hasActiveMemberAlias(allMembers, values.normalizedAlias)) throw new Error("Ya existe un integrante con ese alias en este Count.");
+  const sameAlias = allMembers.filter((member) => member.normalizedAlias === values.normalizedAlias);
+  const inactive = sameAlias.find((member) => member.type === "manual" && !member.active);
+  const batch = writeBatch(db);
+  if (inactive) {
+    const ref = doc(membersRef, inactive.id);
+    batch.update(ref, { alias: values.alias, normalizedAlias: values.normalizedAlias, active: true, reactivatedAt: serverTimestamp(), reactivatedBy: actor.uid, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+    audit(batch, { entityType: "member", entityId: inactive.id, countId, action: "reactivateMember", actor, before: { alias: inactive.alias, active: false }, after: { alias: values.alias, active: true } });
+    await batch.commit();
+    return { id: inactive.id, reactivated: true };
+  }
+  const ref = doc(membersRef);
+  batch.set(ref, { memberId: ref.id, countId, type: "manual", userId: null, alias: values.alias, normalizedAlias: values.normalizedAlias, role: "member", active: true, createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
+  audit(batch, { entityType: "member", entityId: ref.id, countId, action: "createMember", actor, after: { alias: values.alias, type: "manual" } });
+  await batch.commit();
+  return { id: ref.id, reactivated: false };
+}
+
+export async function updateManualMember({ countId, member, alias, actor }) {
+  const values = cleanMemberAlias(alias);
+  const membersRef = collection(db, "counts", countId, "members");
+  const [countSnapshot, matches] = await Promise.all([getDoc(doc(db, "counts", countId)), getDocs(membersRef)]);
+  if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
+  if (await hasActiveMemberAlias(matches.docs.map(toItem), values.normalizedAlias, member.id)) throw new Error("Ya existe un integrante con ese alias en este Count.");
+  const batch = writeBatch(db);
+  batch.update(doc(membersRef, member.id), { alias: values.alias, normalizedAlias: values.normalizedAlias, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  audit(batch, { entityType: "member", entityId: member.id, countId, action: "updateMember", actor, before: { alias: member.alias }, after: { alias: values.alias } });
+  await batch.commit();
+}
+
+export async function removeCountMember({ countId, member, actor }) {
+  const countRef = doc(db, "counts", countId);
+  const memberRef = doc(db, "counts", countId, "members", member.id);
+  const [countSnapshot, memberSnapshot, activeMembers, balances, hasMovements] = await Promise.all([
+    getDoc(countRef), getDoc(memberRef), getDocs(query(collection(db, "counts", countId, "members"), where("active", "==", true))), getCountBalance(countId), memberHasMovements(countId, member.id),
+  ]);
+  if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
+  if (!memberSnapshot.exists() || !memberSnapshot.data().active) throw new Error("Este integrante ya no está activo.");
+  if (Object.values(balances[member.id] || {}).some((amount) => amount !== 0)) throw new Error("Este integrante debe tener saldo $0 en todas las monedas para poder quitarlo.");
+  const registered = activeMembers.docs.map(toItem).filter((item) => item.type === "registered");
+  if (member.type === "registered" && registered.length < 2) throw new Error("No podés quitar al último usuario registrado del Count porque nadie podría administrarlo.");
 
   const batch = writeBatch(db);
-  batch.update(memberRef, { status: "inactive", removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  if (hasMovements) batch.update(memberRef, { active: false, removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
+  else batch.delete(memberRef);
+  if (member.type === "registered") batch.update(doc(db, "memberships", `${countId}_${member.userId}`), { status: "inactive", removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
   audit(batch, {
-    entityType: "membership", entityId: memberRef.id, countId, action: "removeMember", actor,
-    before: { uid: membership.uid, role: memberSnapshot.data().role, status: "active" },
-    after: { uid: membership.uid, role: memberSnapshot.data().role, status: "inactive" },
+    entityType: "member", entityId: memberRef.id, countId, action: "removeMember", actor,
+    before: { type: member.type, alias: member.alias || null, active: true }, after: { active: false },
   });
   await batch.commit();
 }
@@ -293,7 +358,7 @@ function pendingBalanceCurrencies(balances) {
 }
 
 async function getCountBalance(countId) {
-  const membersQuery = query(collection(db, "memberships"), where("countId", "==", countId), where("status", "==", "active"));
+  const membersQuery = query(collection(db, "counts", countId, "members"), where("active", "==", true));
   const expensesQuery = collection(db, "counts", countId, "expenses");
   const settlementsQuery = collection(db, "counts", countId, "settlements");
   const [members, expenses, settlements] = await Promise.all([
@@ -306,6 +371,20 @@ async function getCountBalance(countId) {
     expenses.docs.map(toItem),
     settlements.docs.map(toItem)
   );
+}
+
+async function memberHasMovements(countId, memberId) {
+  const [expenses, settlements] = await Promise.all([
+    getDocs(collection(db, "counts", countId, "expenses")),
+    getDocs(collection(db, "counts", countId, "settlements")),
+  ]);
+  return expenses.docs.some((snapshot) => {
+    const expense = snapshot.data();
+    return expense.payerMemberId === memberId || (expense.participantMemberIds || []).includes(memberId);
+  }) || settlements.docs.some((snapshot) => {
+    const settlement = snapshot.data();
+    return settlement.fromMemberId === memberId || settlement.toMemberId === memberId;
+  });
 }
 
 export async function archiveCount({ countId, actor }) {
@@ -400,15 +479,38 @@ export async function joinInvite(token, user) {
     const count = await transaction.get(doc(db, "counts", countId));
     if (!count.exists() || count.data().status === "archived") throw new Error("Este Count está archivado y no acepta nuevos miembros.");
     const membershipRef = doc(db, "memberships", `${countId}_${user.uid}`);
-    const membership = await transaction.get(membershipRef);
+    const memberRef = doc(db, "counts", countId, "members", `registered_${user.uid}`);
+    const [membership, member] = await Promise.all([transaction.get(membershipRef), transaction.get(memberRef)]);
     const needsMembership = !membership.exists() || membership.data().status !== "active";
-    if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, role: "member", status: "active", displayNameSnapshot: user.displayName || user.email || "Usuario", emailSnapshot: user.email || "", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
-    else if (needsMembership) transaction.update(membershipRef, { status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
+    if (!member.exists()) {
+      transaction.set(memberRef, { memberId: memberRef.id, countId, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, inviteToken: token, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
+      transaction.set(auditRef(), { entityType: "member", entityId: memberRef.id, countId, action: "createMember", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", after: { type: "registered", userId: user.uid }, createdAt: serverTimestamp() });
+    } else if (!member.data().active) {
+      transaction.update(memberRef, { active: true, inviteToken: token, reactivatedAt: serverTimestamp(), reactivatedBy: user.uid, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
+      transaction.set(auditRef(), { entityType: "member", entityId: memberRef.id, countId, action: "reactivateMember", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", before: { active: false }, after: { active: true }, createdAt: serverTimestamp() });
+    }
+    if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
+    else if (needsMembership) transaction.update(membershipRef, { memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
     transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + (needsMembership ? 1 : 0), lastUsedAt: serverTimestamp() });
     return countId;
   });
 }
 
 export async function updateUserSettings(uid, data) {
+  if (data.alias !== undefined) {
+    const normalizedAlias = normalizeMemberAlias(data.alias);
+    if (!normalizedAlias) throw new Error("Ingresá un alias válido.");
+    const memberships = await getDocs(query(collection(db, "memberships"), where("uid", "==", uid), where("status", "==", "active")));
+    const memberLists = await Promise.all(memberships.docs.map((membership) => getDocs(collection(db, "counts", membership.data().countId, "members"))));
+    const otherRegisteredIds = memberLists.flatMap((snapshot) => snapshot.docs.map(toItem))
+      .filter((member) => member.active && member.type === "registered" && member.userId !== uid)
+      .map((member) => member.userId);
+    const otherProfiles = await Promise.all([...new Set(otherRegisteredIds)].map((userId) => getDoc(doc(db, "users", userId))));
+    const conflict = memberLists.some((snapshot) => snapshot.docs.some((member) => {
+      const item = member.data();
+      return item.active && item.type === "manual" && item.normalizedAlias === normalizedAlias;
+    })) || otherProfiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().displayName) === normalizedAlias);
+    if (conflict) throw new Error("Ya existe un integrante con ese alias en uno de tus Counts activos.");
+  }
   return updateDoc(doc(db, "users", uid), { ...data, updatedAt: serverTimestamp() });
 }
