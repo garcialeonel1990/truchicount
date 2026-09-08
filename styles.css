@@ -849,6 +849,14 @@ input:disabled {
 .member-remove-button:disabled { cursor: wait; opacity: 0.7; }
 .danger-button:disabled { cursor: not-allowed; opacity: 0.55; }
 
+.admin-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.admin-tab { flex: 1 0 auto; min-height: 38px; padding: 0 11px; border: 1px solid var(--gray-200); border-radius: 999px; background: var(--white); color: var(--gray-600); font-size: 13px; font-weight: 700; }
+.admin-tab.is-selected { border-color: var(--teal-600); background: var(--color-primary-soft); color: var(--teal-700); }
+.admin-badge { color: var(--teal-600); font-size: 22px; line-height: 0; vertical-align: middle; }
+.admin-user-row { width: 100%; border: 0; background: var(--white); text-align: left; cursor: pointer; }
+.admin-user-row .status-tag { color: var(--teal-700); font-size: 12px; font-weight: 800; }
+.admin-user-row .status-tag.is-blocked { color: #d94d5f; }
+
 .close-button {
   position: absolute;
   top: 14px;

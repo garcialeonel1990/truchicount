@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./styles.css?v=v1-count-members" />
+    <link rel="stylesheet" href="./styles.css?v=v1-access-admin" />
   </head>
   <body>
     <section class="login-screen" id="loginScreen">
@@ -20,6 +20,8 @@
         <p class="form-error" id="authError" hidden></p>
       </div>
     </section>
+    <section class="login-screen" id="pendingAccessScreen" hidden><div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><h1>Acceso pendiente</h1><p>Tu cuenta todavía no está autorizada para usar TruchiCount. El administrador tiene que aprobar tu acceso.</p><button class="secondary-button" id="retryAccessButton" type="button">Reintentar</button><button class="primary-button" id="pendingLogoutButton" type="button">Cerrar sesión</button></div></section>
+    <section class="login-screen" id="blockedAccessScreen" hidden><div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><h1>Acceso bloqueado</h1><p>Esta cuenta no está autorizada para usar TruchiCount.</p><button class="primary-button" id="blockedLogoutButton" type="button">Cerrar sesión</button></div></section>
 
     <main class="app-shell" id="appShell" hidden>
       <header class="app-header">
@@ -49,6 +51,7 @@
         <section class="settings-section"><h2>Monedas</h2><p class="section-copy">Elegí las monedas que podés usar en tus gastos.</p><div class="settings-list" id="currencyList"></div></section>
         <section class="settings-section"><div class="settings-heading"><h2>Categorías</h2><button class="secondary-button small-action" id="newCategoryButton" type="button">+ Nueva categoría</button></div><div class="settings-list" id="categoryList"></div></section>
         <section class="settings-section disabled-setting"><h2>Exportar datos</h2><p>Próximamente</p></section>
+        <section class="settings-section" id="adminSection" hidden><div class="settings-heading"><h2>Administración <span class="admin-badge" id="adminPendingBadge" hidden>•</span></h2></div><div class="admin-tabs" role="tablist"><button class="admin-tab is-selected" data-admin-tab="pending" type="button">Pendientes</button><button class="admin-tab" data-admin-tab="approved" type="button">Aprobados</button><button class="admin-tab" data-admin-tab="blocked" type="button">Bloqueados</button></div><div class="settings-list" id="adminUserList"></div></section>
       </section>
     </main>
 
@@ -62,12 +65,13 @@
     <dialog class="modal" id="memberChoiceModal"><section class="modal-card action-modal"><button class="close-button" type="button" data-close="memberChoiceModal">×</button><h2>Agregar integrante</h2><button class="secondary-button" id="inviteMemberChoice" type="button">Invitar con TruchiCount</button><button class="secondary-button" id="manualMemberChoice" type="button">Agregar manualmente</button></section></dialog>
     <dialog class="modal" id="memberActionModal"><section class="modal-card action-modal"><button class="close-button" type="button" data-close="memberActionModal">×</button><h2 id="memberActionTitle">Integrante</h2><button class="secondary-button" id="editManualMemberAction" type="button">Editar alias</button><button class="danger-button" id="removeMemberAction" type="button">Quitar integrante</button><p class="form-note" id="memberActionReason" hidden></p></section></dialog>
     <dialog class="modal" id="manualMemberModal"><form class="modal-card" id="manualMemberForm"><button class="close-button" type="button" data-close="manualMemberModal">×</button><h2 id="manualMemberTitle">Agregar integrante</h2><label>Alias<input name="alias" required maxlength="80" placeholder="Ej. Mamá" autocomplete="off" /></label><p class="form-error" id="manualMemberError" hidden></p><div class="modal-actions"><button class="secondary-button" type="button" data-close="manualMemberModal">Cancelar</button><button class="primary-button" type="submit">Agregar</button></div></form></dialog>
+    <dialog class="modal" id="adminUserModal"><section class="modal-card"><button class="close-button" type="button" data-close="adminUserModal">×</button><p class="eyebrow">Solicitud de acceso</p><h2 id="adminUserName"></h2><p class="section-copy" id="adminUserEmail"></p><dl class="details-list" id="adminUserDetails"></dl><p class="form-error" id="adminUserError" hidden></p><div class="modal-actions" id="adminUserActions"></div></section></dialog>
     <dialog class="modal" id="countActionsModal"><section class="modal-card action-modal"><button class="close-button" type="button" data-close="countActionsModal">×</button><h2>Opciones del Count</h2><button class="secondary-button" id="manageMembersAction" type="button">Gestionar integrantes</button><button class="secondary-button" id="archiveCountAction" type="button">Archivar Count</button><p class="form-note" id="archiveAvailability" hidden></p><button class="secondary-button" id="unarchiveCountAction" type="button" hidden>Desarchivar Count</button></section></dialog>
     <dialog class="modal" id="archiveConfirmModal"><section class="modal-card"><button class="close-button" type="button" data-close="archiveConfirmModal">×</button><h2 id="archiveConfirmTitle">¿Archivar Count?</h2><p class="section-copy">El Count quedará en modo solo lectura. Podrás consultarlo desde Archivados y desarchivarlo más adelante.</p><p class="form-error" id="archiveConfirmError" hidden></p><div class="modal-actions"><button class="secondary-button" type="button" data-close="archiveConfirmModal">Cancelar</button><button class="primary-button" id="confirmArchiveButton" type="button">Archivar</button></div></section></dialog>
     <dialog class="modal" id="unarchiveConfirmModal"><section class="modal-card"><button class="close-button" type="button" data-close="unarchiveConfirmModal">×</button><h2 id="unarchiveConfirmTitle">¿Desarchivar Count?</h2><p class="section-copy">El Count volverá a permitir modificaciones.</p><p class="form-error" id="unarchiveConfirmError" hidden></p><div class="modal-actions"><button class="secondary-button" type="button" data-close="unarchiveConfirmModal">Cancelar</button><button class="primary-button" id="confirmUnarchiveButton" type="button">Desarchivar</button></div></section></dialog>
     <dialog class="modal" id="accountModal"><form class="modal-card" id="accountForm"><button class="close-button" type="button" data-close="accountModal">×</button><h2>Mi perfil</h2><p class="section-copy" id="accountEmail"></p><label>Alias<input id="accountName" name="displayName" required maxlength="80" /></label><p class="form-error" id="accountError" hidden></p><button class="secondary-button" id="logoutButton" type="button">Cerrar sesión</button><button class="primary-button" type="submit">Guardar</button></form></dialog>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
     <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
-    <script src="./app.js?v=v1-members-v2" type="module"></script>
+    <script src="./app.js?v=v1-access-admin" type="module"></script>
   </body>
 </html>

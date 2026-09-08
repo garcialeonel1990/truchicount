@@ -20,6 +20,7 @@ import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./mon
 
 const toItem = (snapshot) => ({ id: snapshot.id, ...snapshot.data() });
 const auditRef = () => doc(collection(db, "auditLogs"));
+export const ADMIN_UID = "8qvbKFXafDXWWGDPo2OFDul6uss1";
 
 function audit(batch, { entityType, entityId, countId, action, actor, before = null, after = null }) {
   batch.set(auditRef(), {
@@ -35,21 +36,49 @@ export async function ensureUser(user) {
   const ref = doc(db, "users", user.uid);
   const current = await getDoc(ref);
   const googleDisplayName = user.displayName || user.email?.split("@")[0] || "Usuario";
+  const isAdmin = user.uid === ADMIN_UID;
   const shared = {
     uid: user.uid,
     googleDisplayName,
     email: user.email || "",
     updatedAt: serverTimestamp(),
-    lastLoginAt: serverTimestamp(),
+    lastLoginAttemptAt: serverTimestamp(),
   };
   if (current.exists()) {
     const legacyAlias = current.data().alias || current.data().displayName;
-    return setDoc(ref, { ...shared, ...(legacyAlias ? { alias: legacyAlias } : { alias: googleDisplayName }) }, { merge: true });
+    const accessStatus = isAdmin ? "approved" : current.data().accessStatus || "pending";
+    return setDoc(ref, { ...shared, alias: legacyAlias || null, accessStatus, isAdmin, ...(accessStatus === "pending" ? { requestedAt: current.data().requestedAt || serverTimestamp() } : {}) }, { merge: true });
   }
-  return setDoc(ref, { ...shared, alias: googleDisplayName, defaultCurrency: DEFAULT_CURRENCY, enabledCurrencies: [DEFAULT_CURRENCY], createdAt: serverTimestamp() });
+  const batch = writeBatch(db);
+  const accessStatus = isAdmin ? "approved" : "pending";
+  batch.set(ref, {
+    ...shared, alias: null, accessStatus, isAdmin,
+    requestedAt: isAdmin ? null : serverTimestamp(), lastLoginAttemptAt: serverTimestamp(),
+    approvedAt: isAdmin ? serverTimestamp() : null, approvedBy: isAdmin ? ADMIN_UID : null,
+    blockedAt: null, blockedBy: null, defaultCurrency: DEFAULT_CURRENCY,
+    enabledCurrencies: [DEFAULT_CURRENCY], createdAt: serverTimestamp(), schemaVersion: 1,
+  });
+  batch.set(auditRef(), { entityType: "userAccess", entityId: user.uid, action: isAdmin ? "approveAccess" : "requestAccess", actorUid: user.uid, actorNameSnapshot: googleDisplayName, before: null, after: { accessStatus }, createdAt: serverTimestamp() });
+  return batch.commit();
 }
 
 export const watchUser = (uid, onChange, onError) => onSnapshot(doc(db, "users", uid), (snap) => onChange(snap.exists() ? toItem(snap) : null), onError);
+export const watchAccessUsers = (onChange, onError) => onSnapshot(collection(db, "users"), (snap) => onChange(snap.docs.map(toItem)), onError);
+
+export async function updateUserAccess({ target, status, actor }) {
+  if (actor.uid !== ADMIN_UID) throw new Error("No tenés permisos de administración.");
+  if (target.uid === ADMIN_UID) throw new Error("No podés bloquear ni modificar el acceso del administrador.");
+  if (!(["approved", "blocked"].includes(status))) throw new Error("Estado de acceso inválido.");
+  const ref = doc(db, "users", target.uid);
+  const action = status === "blocked" ? "blockAccess" : target.accessStatus === "blocked" ? "reapproveAccess" : "approveAccess";
+  const changes = { accessStatus: status, updatedAt: serverTimestamp() };
+  if (status === "approved") Object.assign(changes, { approvedAt: serverTimestamp(), approvedBy: actor.uid });
+  else Object.assign(changes, { blockedAt: serverTimestamp(), blockedBy: actor.uid });
+  const batch = writeBatch(db);
+  batch.update(ref, changes);
+  audit(batch, { entityType: "userAccess", entityId: target.uid, action, actor, before: { accessStatus: target.accessStatus }, after: { accessStatus: status } });
+  await batch.commit();
+}
 
 export function watchCounts(uid, onChange, onError) {
   let stopCountWatches = [];

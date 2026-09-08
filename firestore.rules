@@ -6,12 +6,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Administración operativa de TruchiCount. Este bypass es intencional:
-    // permite recuperar, crear y administrar cualquier Count sin depender de
-    // que la primera membership del batch ya exista.
-    function isSuperAdmin() {
+    // La fuente real de seguridad administrativa es el UID de Firebase Auth.
+    function isAdmin() {
       return signedIn()
-        && request.auth.token.email == "garcialeonel1990@gmail.com";
+        && request.auth.uid == "8qvbKFXafDXWWGDPo2OFDul6uss1";
+    }
+
+    function isApprovedUser() {
+      return isAdmin() || (signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessStatus == "approved");
     }
 
     function membershipPath(countId, uid) {
@@ -19,13 +23,13 @@ service cloud.firestore {
     }
 
     function isCountMember(countId) {
-      return signedIn()
+      return isApprovedUser()
         && exists(membershipPath(countId, request.auth.uid))
         && get(membershipPath(countId, request.auth.uid)).data.status == "active";
     }
 
     function isCountMemberAfter(countId) {
-      return signedIn()
+      return isApprovedUser()
         && existsAfter(membershipPath(countId, request.auth.uid))
         && getAfter(membershipPath(countId, request.auth.uid)).data.status == "active";
     }
@@ -62,20 +66,48 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      // El alias global se resuelve desde los Members registrados del Count.
-      allow read: if isSuperAdmin() || signedIn();
-      allow create, update: if isSuperAdmin()
-        || (signedIn() && request.auth.uid == uid);
-      allow delete: if isSuperAdmin();
+      // Pendientes y bloqueados leen únicamente su estado. Los aprobados
+      // pueden resolver aliases de integrantes registrados.
+      allow get: if isAdmin() || (signedIn() && request.auth.uid == uid) || isApprovedUser();
+      allow list: if isAdmin();
+      allow create: if (isAdmin()
+          && uid == "8qvbKFXafDXWWGDPo2OFDul6uss1"
+          && request.resource.data.uid == uid
+          && request.resource.data.accessStatus == "approved"
+          && request.resource.data.isAdmin == true)
+        || (signedIn()
+          && request.auth.uid == uid
+          && uid != "8qvbKFXafDXWWGDPo2OFDul6uss1"
+          && request.resource.data.uid == uid
+          && request.resource.data.accessStatus == "pending"
+          && request.resource.data.isAdmin == false);
+      allow update: if (isAdmin()
+          && (uid != "8qvbKFXafDXWWGDPo2OFDul6uss1"
+            || (request.resource.data.accessStatus == "approved"
+              && request.resource.data.isAdmin == true)))
+        || (signedIn()
+          && request.auth.uid == uid
+          && uid != "8qvbKFXafDXWWGDPo2OFDul6uss1"
+          && request.resource.data.uid == uid
+          && request.resource.data.isAdmin == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "uid", "googleDisplayName", "email", "alias", "accessStatus", "isAdmin",
+            "requestedAt", "lastLoginAttemptAt", "updatedAt", "defaultCurrency",
+            "enabledCurrencies"
+          ])
+          && ((!resource.data.keys().hasAll(["accessStatus"])
+              && request.resource.data.accessStatus == "pending")
+            || request.resource.data.accessStatus == resource.data.accessStatus));
+      allow delete: if false;
     }
 
     match /counts/{countId} {
-      allow create: if isSuperAdmin()
-        || (signedIn() && request.resource.data.ownerUid == request.auth.uid);
-      allow read: if isSuperAdmin() || isCountMember(countId);
+      allow create: if isAdmin()
+        || (isApprovedUser() && request.resource.data.ownerUid == request.auth.uid);
+      allow read: if isAdmin() || isCountMember(countId);
       // Cualquier integrante puede alternar el archivado. Fuera de esa
       // transición el Count no admite cambios desde el cliente.
-      allow update: if isSuperAdmin() || (isCountMember(countId)
+      allow update: if isAdmin() || (isCountMember(countId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           "status", "archiveBalanceSnapshot", "firstArchivedAt", "firstArchivedBy",
           "lastArchivedAt", "lastArchivedBy", "lastArchivedByNameSnapshot",
@@ -84,25 +116,25 @@ service cloud.firestore {
         ])
         && ((resource.data.status == "active" && request.resource.data.status == "archived")
           || (resource.data.status == "archived" && request.resource.data.status == "active")));
-      allow delete: if isSuperAdmin();
+      allow delete: if isAdmin();
 
       match /expenses/{expenseId} {
-        allow read: if isSuperAdmin() || isCountMember(countId);
-        allow create, update: if isSuperAdmin() || isActiveCountMember(countId);
-        allow delete: if isSuperAdmin();
+        allow read: if isAdmin() || isCountMember(countId);
+        allow create, update: if isAdmin() || isActiveCountMember(countId);
+        allow delete: if isAdmin();
       }
 
       match /settlements/{settlementId} {
-        allow read: if isSuperAdmin() || isCountMember(countId);
-        allow create, update: if isSuperAdmin() || isActiveCountMember(countId);
-        allow delete: if isSuperAdmin();
+        allow read: if isAdmin() || isCountMember(countId);
+        allow create, update: if isAdmin() || isActiveCountMember(countId);
+        allow delete: if isAdmin();
       }
 
       match /members/{memberId} {
-        allow read: if isSuperAdmin() || isCountMember(countId);
+        allow read: if isAdmin() || isCountMember(countId);
         // Los manuales no poseen Auth; sólo un integrante registrado puede
         // crearlos. Los registrados llegan exclusivamente por una invitación.
-        allow create: if isSuperAdmin() || (
+        allow create: if isAdmin() || (
           (isActiveCountMember(countId)
             || (isActiveCountAfter(countId) && isCountMemberAfter(countId)))
           && request.resource.data.countId == countId
@@ -119,7 +151,7 @@ service cloud.firestore {
                 || hasActiveInvite(request.resource.data.inviteToken, countId)))
           )
         );
-        allow update: if isSuperAdmin()
+        allow update: if isAdmin()
           // Edición y baja de un Member activo por un integrante registrado.
           || (isActiveCountMember(countId)
             && resource.data.active == true
@@ -147,23 +179,23 @@ service cloud.firestore {
               "removedAt", "removedBy", "updatedAt", "updatedBy"
             ]))
           // Reactivación de un registrado solamente mediante invitación válida.
-          || (signedIn()
+          || (isApprovedUser()
             && resource.data.type == "registered"
             && resource.data.userId == request.auth.uid
             && resource.data.active == false
             && request.resource.data.active == true
             && isActiveCount(countId)
             && hasActiveInvite(request.resource.data.inviteToken, countId));
-        allow delete: if isSuperAdmin() || (isActiveCountMember(countId)
+        allow delete: if isAdmin() || (isActiveCountMember(countId)
           && resource.data.active == true);
       }
     }
 
     match /memberships/{membershipId} {
-      allow read: if isSuperAdmin() || (signedIn() && (
+      allow read: if isAdmin() || (isApprovedUser() && (
         resource.data.uid == request.auth.uid || isCountMember(resource.data.countId)
       ));
-      allow create: if isSuperAdmin() || (signedIn()
+      allow create: if isAdmin() || (isApprovedUser()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == "active"
         && (
@@ -171,7 +203,7 @@ service cloud.firestore {
             && request.resource.data.role == "owner")
           || hasActiveInvite(request.resource.data.inviteToken, request.resource.data.countId)
         ));
-      allow update: if isSuperAdmin()
+      allow update: if isAdmin()
         || (isOwner(resource.data.countId)
           && isActiveCount(resource.data.countId)
           && resource.data.status == "active"
@@ -179,7 +211,7 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(["status", "removedAt", "removedBy", "updatedAt", "updatedBy"])
           && request.resource.data.removedBy == request.auth.uid)
-        || (signedIn()
+        || (isApprovedUser()
           && resource.data.uid == request.auth.uid
           && resource.data.status == "inactive"
           && request.resource.data.status == "active"
@@ -187,14 +219,14 @@ service cloud.firestore {
           && hasActiveInvite(request.resource.data.inviteToken, resource.data.countId)
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]));
-      allow delete: if isSuperAdmin();
+      allow delete: if isAdmin();
     }
 
     match /invites/{token} {
-      allow read: if isSuperAdmin() || signedIn();
-      allow create: if isSuperAdmin() || (signedIn() && isActiveCountMember(request.resource.data.countId)
+      allow read: if isAdmin() || isApprovedUser();
+      allow create: if isAdmin() || (isApprovedUser() && isActiveCountMember(request.resource.data.countId)
         && request.resource.data.createdBy == request.auth.uid);
-      allow update: if isSuperAdmin() || (signedIn()
+      allow update: if isAdmin() || (isApprovedUser()
         && isActiveCount(resource.data.countId)
         && resource.data.status == "active"
         && request.resource.data.countId == resource.data.countId
@@ -202,37 +234,41 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(["usageCount", "lastUsedAt"]));
-      allow delete: if isSuperAdmin();
+      allow delete: if isAdmin();
     }
 
     match /categories/{categoryId} {
-      allow read: if isSuperAdmin() || signedIn();
-      allow create: if isSuperAdmin() || (signedIn() && request.resource.data.createdBy == request.auth.uid);
-      allow update: if isSuperAdmin() || signedIn();
-      allow delete: if isSuperAdmin();
+      allow read: if isAdmin() || isApprovedUser();
+      allow create: if isAdmin() || (isApprovedUser() && request.resource.data.createdBy == request.auth.uid);
+      allow update: if isAdmin() || isApprovedUser();
+      allow delete: if isAdmin();
     }
 
     match /merchants/{merchantId} {
-      allow read: if isSuperAdmin() || signedIn();
-      allow create: if isSuperAdmin() || (signedIn() && request.resource.data.createdBy == request.auth.uid);
-      allow update: if isSuperAdmin() || signedIn();
-      allow delete: if isSuperAdmin();
+      allow read: if isAdmin() || isApprovedUser();
+      allow create: if isAdmin() || (isApprovedUser() && request.resource.data.createdBy == request.auth.uid);
+      allow update: if isAdmin() || isApprovedUser();
+      allow delete: if isAdmin();
     }
 
     match /auditLogs/{auditId} {
-      allow read: if isSuperAdmin() || (signedIn() && isCountMember(resource.data.countId));
-      allow create: if isSuperAdmin() || (signedIn()
-        && request.resource.data.actorUid == request.auth.uid
-        && (
-          request.resource.data.entityType == "category"
-          || isActiveCountMember(request.resource.data.countId)
-          || isActiveCountMemberAfter(request.resource.data.countId)
-          || (isCountMember(request.resource.data.countId)
-            && request.resource.data.entityType == "count"
-            && request.resource.data.action == "unarchiveCount"
-            && isActiveCountAfter(request.resource.data.countId))
-        ));
-      allow update, delete: if isSuperAdmin();
+      allow read: if isAdmin() || (isApprovedUser() && isCountMember(resource.data.countId));
+      allow create: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == request.resource.data.actorUid
+          && request.resource.data.entityType == "userAccess"
+          && request.resource.data.entityId == request.auth.uid
+          && request.resource.data.action == "requestAccess")
+        || (isApprovedUser()
+          && request.resource.data.actorUid == request.auth.uid
+          && (request.resource.data.entityType == "category"
+            || isActiveCountMember(request.resource.data.countId)
+            || isActiveCountMemberAfter(request.resource.data.countId)
+            || (isCountMember(request.resource.data.countId)
+              && request.resource.data.entityType == "count"
+              && request.resource.data.action == "unarchiveCount"
+              && isActiveCountAfter(request.resource.data.countId))));
+      allow update, delete: if isAdmin();
     }
   }
 }

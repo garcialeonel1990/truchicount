@@ -1,12 +1,12 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
-import { archiveCount, createCategory, createCount, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, removeCountMember, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateManualMember, updateUserSettings, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { ADMIN_UID, archiveCount, createCategory, createCount, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, joinInvite, removeCountMember, saveExpense, softDeleteCategory, softDeleteExpense, unarchiveCount, updateCategory, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
-const unsubscribers = { app: [], detail: [], profiles: [] };
-const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "memberChoiceModal", "memberActionModal", "manualMemberModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
+const unsubscribers = { access: [], app: [], admin: [], detail: [], profiles: [] };
+const dialogs = ["countModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "memberModal", "memberChoiceModal", "memberActionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
 function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
@@ -28,6 +28,7 @@ function categoryDisplay(categoryId, fallbackName = "") {
 function categoryEmoji(category) { return category?.emoji || icon(category?.name); }
 function balances() { return calculateNetBalances(state.members, state.expenses, state.settlements); }
 function isReadOnly() { return state.count?.status === "archived"; }
+function isAdmin() { return state.user?.uid === ADMIN_UID; }
 function canManageMembers() { return activeMembers().some((member) => member.type === "registered" && member.userId === state.user?.uid); }
 function pendingCurrencies(balance = balances()) { return [...new Set(Object.values(balance).flatMap((byCurrency) => Object.entries(byCurrency).filter(([, amount]) => amount !== 0).map(([currency]) => currency)))].sort(); }
 function setBusy(button, busy, label, busyLabel = "Guardando…") { button.disabled = busy; button.textContent = busy ? busyLabel : label; }
@@ -37,25 +38,43 @@ function showToast(message) { const toast = $("#toast"); clearTimeout(state.toas
 
 completeRedirectSignIn().catch((exception) => error($("#authError"), exception, "No se pudo completar el inicio de sesión."));
 watchAuth(async (user) => {
-  stop("app"); stop("detail"); stop("profiles");
-  state.user = user; state.profile = null; state.counts = []; state.count = null; state.homeTab = "active";
-  $("#loginScreen").hidden = Boolean(user); $("#appShell").hidden = !user;
+  stop("access"); stop("app"); stop("admin"); stop("detail"); stop("profiles");
+  state.user = user; state.profile = null; state.accessStarted = false; state.counts = []; state.count = null; state.homeTab = "active";
+  $("#loginScreen").hidden = Boolean(user); $("#pendingAccessScreen").hidden = true; $("#blockedAccessScreen").hidden = true; $("#appShell").hidden = true;
+  const token = inviteToken(); if (token) savePendingInvite(token);
   if (!user) return;
   try {
     await ensureUser(user);
-    await ensureDefaultCategories(user);
-    startAppWatches();
-    const token = inviteToken();
-    if (token) await acceptInvite(token);
-    showScreen(state.count ? "detail" : "home");
+    watch("access", watchUser(user.uid, handleAccessProfile, (exception) => error($("#authError"), exception, "No pudimos verificar tu acceso.")));
   } catch (exception) { error($("#authError"), exception, "No pudimos preparar tu cuenta."); }
 });
 
+function handleAccessProfile(profile) {
+  state.profile = profile;
+  const status = profile?.accessStatus || "pending";
+  const approved = status === "approved" || isAdmin();
+  $("#loginScreen").hidden = true;
+  $("#pendingAccessScreen").hidden = approved || status === "blocked";
+  $("#blockedAccessScreen").hidden = approved || status !== "blocked";
+  $("#appShell").hidden = !approved;
+  if (!approved) {
+    stop("app"); stop("admin"); stop("detail"); stop("profiles"); state.accessStarted = false;
+    return;
+  }
+  if (state.accessStarted) { renderHeader(); renderSettings(); return; }
+  state.accessStarted = true;
+  ensureDefaultCategories(state.user).catch(console.error);
+  startAppWatches();
+  const token = pendingInviteToken();
+  if (token) acceptInvite(token);
+  else showScreen("home");
+}
+
 function startAppWatches() {
-  watch("app", watchUser(state.user.uid, (profile) => { state.profile = profile; renderHeader(); renderSettings(); }, console.error));
   watch("app", watchCategories((items) => { state.categories = items; renderSettings(); if (state.count) renderDetail(); }, console.error));
   watch("app", watchMerchants((items) => { state.merchants = items; renderMerchantOptions(); }, console.error));
   watch("app", watchCounts(state.user.uid, (items) => { state.counts = items; renderHome(); }, console.error));
+  if (isAdmin()) watch("admin", watchAccessUsers((users) => { state.accessUsers = users; renderSettings(); }, console.error));
 }
 function inviteToken() {
   const queryToken = new URLSearchParams(location.search).get("join");
@@ -66,12 +85,16 @@ async function acceptInvite(token) {
   try {
     const id = await joinInvite(token, state.user);
     history.replaceState({}, "", "/");
+    clearPendingInvite();
     openCount(id);
   } catch (exception) {
     history.replaceState({}, "", "/");
     error($("#authError"), exception, "No pudimos usar esta invitación.");
   }
 }
+function savePendingInvite(token) { try { sessionStorage.setItem("truchicountPendingInvite", token); } catch {} }
+function pendingInviteToken() { try { return sessionStorage.getItem("truchicountPendingInvite"); } catch { return null; } }
+function clearPendingInvite() { try { sessionStorage.removeItem("truchicountPendingInvite"); } catch {} }
 function renderHeader() {
   const name = state.profile?.alias || state.profile?.displayName || state.user?.displayName || state.user?.email || "Usuario";
   $("#welcomeText").textContent = "Hola, " + name.split(" ")[0];
@@ -211,16 +234,62 @@ function renderSettings() {
   const active = activeCategories();
   if (!active.length) {
     categories.innerHTML = '<div class="empty-category-row">No hay categorías activas.</div>';
-    return;
-  }
-  active.forEach((category) => {
-    const row = document.createElement("article"); row.className = "settings-row category-row";
-    row.innerHTML = '<span>' + categoryEmoji(category) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="category-actions"><button class="category-icon-button" type="button" aria-label="Editar categoría">✎</button><button class="category-icon-button category-delete-button" type="button" aria-label="Eliminar categoría">×</button></span>';
-    const buttons = row.querySelectorAll("button");
-    on(buttons[0], "click", () => openCategoryModal(category));
-    on(buttons[1], "click", () => deleteCategory(category));
-    categories.append(row);
+  } else active.forEach((category) => {
+      const row = document.createElement("article"); row.className = "settings-row category-row";
+      row.innerHTML = '<span>' + categoryEmoji(category) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="category-actions"><button class="category-icon-button" type="button" aria-label="Editar categoría">✎</button><button class="category-icon-button category-delete-button" type="button" aria-label="Eliminar categoría">×</button></span>';
+      const buttons = row.querySelectorAll("button");
+      on(buttons[0], "click", () => openCategoryModal(category));
+      on(buttons[1], "click", () => deleteCategory(category));
+      categories.append(row);
+    });
+  renderAdmin();
+}
+
+function renderAdmin() {
+  const section = $("#adminSection");
+  section.hidden = !isAdmin();
+  if (!isAdmin()) return;
+  const pending = state.accessUsers.filter((user) => user.accessStatus === "pending");
+  $("#adminPendingBadge").hidden = pending.length === 0;
+  document.querySelectorAll("[data-admin-tab]").forEach((button) => button.classList.toggle("is-selected", button.dataset.adminTab === state.adminTab));
+  const list = $("#adminUserList"); list.replaceChildren();
+  const users = state.accessUsers.filter((user) => user.accessStatus === state.adminTab).sort((a, b) => String(a.googleDisplayName || a.email).localeCompare(String(b.googleDisplayName || b.email), "es"));
+  if (!users.length) { list.innerHTML = '<div class="empty-category-row">No hay usuarios en esta sección.</div>'; return; }
+  users.forEach((user) => {
+    const row = document.createElement("button"); row.type = "button"; row.className = "settings-row admin-user-row";
+    const status = user.accessStatus === "pending" ? "Pendiente" : user.accessStatus === "blocked" ? "Bloqueado" : "Activo";
+    row.innerHTML = '<span class="member-avatar">' + esc((user.googleDisplayName || user.email || "U").slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(user.googleDisplayName || "Sin nombre") + '</strong><small>' + esc(user.email || "") + '</small></span><span class="status-tag ' + (user.accessStatus === "blocked" ? "is-blocked" : "") + '">' + status + '</span>';
+    on(row, "click", () => openAdminUser(user)); list.append(row);
   });
+}
+
+function openAdminUser(user) {
+  state.adminUser = user;
+  $("#adminUserName").textContent = user.googleDisplayName || "Sin nombre";
+  $("#adminUserEmail").textContent = user.email || "Sin email";
+  $("#adminUserDetails").innerHTML = '<div><dt>UID</dt><dd>' + esc(user.uid) + '</dd></div><div><dt>Solicitado</dt><dd>' + prettyDate(user.requestedAt) + '</dd></div><div><dt>Último intento</dt><dd>' + prettyDate(user.lastLoginAttemptAt || user.lastLoginAt) + '</dd></div><div><dt>Estado</dt><dd>' + esc(user.accessStatus || "pending") + '</dd></div>';
+  $("#adminUserError").hidden = true;
+  const actions = $("#adminUserActions"); actions.replaceChildren();
+  if (user.uid !== ADMIN_UID) {
+    if (user.accessStatus === "pending") {
+      const reject = document.createElement("button"); reject.type = "button"; reject.className = "danger-button"; reject.textContent = "Rechazar"; on(reject, "click", () => changeUserAccess("blocked", reject)); actions.append(reject);
+      const approve = document.createElement("button"); approve.type = "button"; approve.className = "primary-button"; approve.textContent = "Aprobar"; on(approve, "click", () => changeUserAccess("approved", approve)); actions.append(approve);
+    } else if (user.accessStatus === "approved") {
+      const block = document.createElement("button"); block.type = "button"; block.className = "danger-button"; block.textContent = "Bloquear"; on(block, "click", () => changeUserAccess("blocked", block)); actions.append(block);
+    } else {
+      const approve = document.createElement("button"); approve.type = "button"; approve.className = "primary-button"; approve.textContent = "Volver a aprobar"; on(approve, "click", () => changeUserAccess("approved", approve)); actions.append(approve);
+    }
+  }
+  dialogs.adminUserModal.showModal();
+}
+
+async function changeUserAccess(status, button) {
+  const user = state.adminUser; if (!user) return;
+  if (status === "blocked" && !confirm("¿Bloquear a " + (user.googleDisplayName || user.email) + "?\n\nEsta cuenta no podrá acceder a TruchiCount hasta que la vuelvas a aprobar.")) return;
+  const label = button.textContent;
+  $("#adminUserError").hidden = true; setBusy(button, true, label);
+  try { await updateUserAccess({ target: user, status, actor: state.user }); dialogs.adminUserModal.close(); }
+  catch (exception) { error($("#adminUserError"), exception, "No pudimos actualizar el acceso."); setBusy(button, false, label); }
 }
 
 function openCategoryModal(category = null) {
@@ -412,6 +481,8 @@ function openUnarchiveConfirmation() {
 }
 
 on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true; const button = $("#googleLoginButton"); setBusy(button, true, "Continuar con Google"); try { await signInWithGoogle(); } catch (exception) { error($("#authError"), exception, "No se pudo iniciar sesión."); setBusy(button, false, "Continuar con Google"); } });
+on($("#retryAccessButton"), "click", async () => { if (!state.user) return; try { await ensureUser(state.user); } catch (exception) { console.error(exception); } });
+on($("#pendingLogoutButton"), "click", () => signOutUser()); on($("#blockedLogoutButton"), "click", () => signOutUser());
 on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal);
 on($("#memberAddButton"), "click", () => dialogs.memberChoiceModal.showModal());
 on($("#inviteMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); dialogs.memberModal.close(); openInviteModal(); });
@@ -424,6 +495,7 @@ on($("#accountButton"), "click", () => { $("#accountName").value = state.profile
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
+document.querySelectorAll("[data-admin-tab]").forEach((button) => on(button, "click", () => { state.adminTab = button.dataset.adminTab; renderAdmin(); }));
 on($("#expenseForm"), "input", updateSplitPreview); on($("#expenseForm"), "change", updateSplitPreview);
 
 on($("#countForm"), "submit", async (event) => {
