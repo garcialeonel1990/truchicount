@@ -1,10 +1,10 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
 import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
-import { calculateNetBalances, simplifyDebts, actionsForUser } from "./balances.js";
-import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, parseMoney } from "./money.js";
+import { calculateNetBalances, simplifyDebts, balancePresentation } from "./balances.js";
+import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
+const state = { user: null, profile: null, accessStarted: false, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
 const unsubscribers = { access: [], app: [], admin: [], detail: [], profiles: [] };
 const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "primaryCurrencyModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 
@@ -159,10 +159,19 @@ function openCount(id) {
   stop("detail"); stop("profiles"); state.memberProfiles = {};
   state.count = state.counts.find((count) => count.id === id) || { id: id, name: "Cargando…" };
   state.members = []; state.expenses = []; state.settlements = [];
-  watch("detail", watchCount(id, (count) => { state.count = count; renderDetail(); }, detailError));
-  watch("detail", watchMembers(id, (members) => { state.members = members; refreshMemberProfiles(); renderDetail(); }, detailError));
-  watch("detail", watchExpenses(id, (items) => { state.expenses = items; renderDetail(); }, detailError));
-  watch("detail", watchSettlements(id, (items) => { state.settlements = items; renderDetail(); }, detailError));
+  state.detailLoading = { count: false, members: false, expenses: false, settlements: false, failed: false };
+  watch("detail", watchCount(id, (count) => { state.count = count; state.detailLoading.count = true; renderDetail(); }, detailError));
+  watch("detail", watchMembers(id, (members) => {
+    state.members = members;
+    state.detailLoading.members = true;
+    refreshMemberProfiles();
+    renderDetail();
+    // The member manager may remain open underneath the manual-member form.
+    // Keep it synchronized with the same live data as the Count detail.
+    if (dialogs.memberModal.open) renderMemberList();
+  }, detailError));
+  watch("detail", watchExpenses(id, (items) => { state.expenses = items; state.detailLoading.expenses = true; renderDetail(); }, detailError));
+  watch("detail", watchSettlements(id, (items) => { state.settlements = items; state.detailLoading.settlements = true; renderDetail(); }, detailError));
   showScreen("detail");
 }
 function refreshMemberProfiles() {
@@ -174,7 +183,12 @@ function refreshMemberProfiles() {
   });
   state.memberProfiles = profiles;
 }
-function detailError(exception) { console.error(exception); $("#expenseList").innerHTML = '<section class="empty-state"><strong>No pudimos cargar este Count.</strong><span>Revisá tu conexión e intentá de nuevo.</span></section>'; }
+function detailError(exception) {
+  console.error(exception);
+  state.detailLoading.failed = true;
+  $("#expenseList").innerHTML = '<section class="empty-state"><strong>No pudimos cargar este Count.</strong><span>Revisá tu conexión e intentá de nuevo.</span></section>';
+  renderBalances();
+}
 function renderDetail() {
   if (!state.count) return;
   $("#countTitle").textContent = state.count.name;
@@ -203,28 +217,39 @@ function renderExpenses() {
   items.forEach((expense) => {
     const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
     const card = document.createElement("button"); card.className = "expense-card"; card.type = "button";
-    card.innerHTML = '<span class="expense-icon">' + category.emoji + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>' + esc(category.name) + " · " + prettyDate(expense.expenseDate) + '</small><small>Pagó ' + esc(nameOf(expense.payerMemberId)) + " · " + expense.participantMemberIds.length + ' participantes</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
+    card.innerHTML = '<span class="expense-icon">' + esc(category.emoji) + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>' + esc(category.name) + " · " + prettyDate(expense.expenseDate) + '</small><small>Pagó ' + esc(nameOf(expense.payerMemberId)) + " · " + expense.participantMemberIds.length + ' participantes</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
     on(card, "click", () => openExpenseDetail(expense)); list.append(card);
   });
 }
 
 function renderBalances() {
-  const computed = balances();
-  const suggestions = simplifyDebts(computed);
   const actions = $("#balanceActions"); actions.replaceChildren();
   const myMemberId = activeMembers().find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
-  const mine = actionsForUser(suggestions, myMemberId);
-  if (!mine.length) {
+  const ready = ["count", "members", "expenses", "settlements"].every((key) => state.detailLoading[key]);
+  const computed = balances();
+  const presentation = balancePresentation({ suggestions: simplifyDebts(computed), memberId: myMemberId, ready, failed: state.detailLoading.failed });
+  if (presentation.state === "loading") {
+    actions.innerHTML = '<section class="settled-state"><strong>Cargando balances…</strong><span>Estamos verificando gastos y pagos.</span></section>';
+    return;
+  }
+  if (presentation.state === "error") {
+    actions.innerHTML = '<section class="settled-state"><strong>No pudimos verificar los balances.</strong><span>Revisá tu conexión antes de registrar cambios.</span></section>';
+    return;
+  }
+  if (presentation.state === "settled") {
     actions.innerHTML = '<section class="settled-state"><strong>Todo saldado 🎉</strong><span>Nadie le debe nada a nadie.</span></section>';
     if (!isReadOnly()) actions.insertAdjacentHTML("beforeend", '<p class="archive-ready">Este Count ya se puede archivar.</p>');
-  }
-  else {
-    const title = document.createElement("h2"); title.className = "section-title"; title.textContent = "Qué tenés que hacer"; actions.append(title);
-    mine.forEach((suggestion) => {
+  } else {
+    if (presentation.state === "up-to-date") {
+      actions.innerHTML = '<section class="settled-state"><strong>Vos estás al día</strong><span>Hay pagos pendientes entre otros integrantes.</span></section>';
+    }
+    const title = document.createElement("h2"); title.className = "section-title"; title.textContent = presentation.state === "actionable" ? "Pagos pendientes" : "Pagos pendientes del Count"; actions.append(title);
+    presentation.suggestions.forEach((suggestion) => {
       const pays = suggestion.fromMemberId === myMemberId;
-      const other = nameOf(pays ? suggestion.toMemberId : suggestion.fromMemberId);
+      const receives = suggestion.toMemberId === myMemberId;
+      const label = pays ? "Pagale a " + nameOf(suggestion.toMemberId) : receives ? "Reclamale a " + nameOf(suggestion.fromMemberId) : nameOf(suggestion.fromMemberId) + " le paga a " + nameOf(suggestion.toMemberId);
       const card = document.createElement("button"); card.type = "button"; card.className = "settlement-card";
-      card.innerHTML = '<span class="settlement-icon">' + (pays ? "↗" : "↙") + '</span><span><strong>' + (pays ? "Pagale a " : "Reclamale a ") + esc(other) + '</strong><small>' + formatMoney(suggestion.amountMinor, suggestion.currency) + '</small></span><span class="chevron">›</span>';
+      card.innerHTML = '<span class="settlement-icon">' + (pays ? "↗" : receives ? "↙" : "↔") + '</span><span><strong>' + esc(label) + '</strong><small>' + formatMoney(suggestion.amountMinor, suggestion.currency) + '</small></span><span class="chevron">›</span>';
       if (!isReadOnly()) on(card, "click", () => openSettlementModal(suggestion)); else card.disabled = true;
       actions.append(card);
     });
@@ -261,7 +286,7 @@ function renderSettings() {
     categories.innerHTML = '<div class="empty-category-row">No hay categorías activas.</div>';
   } else active.forEach((category) => {
       const row = document.createElement("article"); row.className = "settings-row category-row";
-      row.innerHTML = '<span>' + categoryEmoji(category) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="category-actions"><button class="category-icon-button" type="button" aria-label="Editar categoría">✎</button><button class="category-icon-button category-delete-button" type="button" aria-label="Eliminar categoría">×</button></span>';
+      row.innerHTML = '<span>' + esc(categoryEmoji(category)) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="category-actions"><button class="category-icon-button" type="button" aria-label="Editar categoría">✎</button><button class="category-icon-button category-delete-button" type="button" aria-label="Eliminar categoría">×</button></span>';
       const buttons = row.querySelectorAll("button");
       on(buttons[0], "click", () => openCategoryModal(category));
       on(buttons[1], "click", () => deleteCategory(category));
@@ -486,12 +511,18 @@ function openExpenseModal(expense) {
   renderMerchantOptions(); updateSplitPreview(); dialogs.expenseModal.showModal();
 }
 function renderMerchantOptions() { const list = $("#merchantOptions"); if (!list) return; list.replaceChildren(); state.merchants.slice(0, 50).forEach((merchant) => list.append(new Option(merchant.name))); }
-function updateSplitPreview() { const selected = document.querySelectorAll("[name='participant']:checked").length; const minor = parseMoney($("#expenseForm").elements.amount.value); $("#splitPreview").textContent = selected ? formatMoney(minor ? Math.floor(minor / selected) : 0, $("#expenseCurrency").value) + " cada uno" : "Elegí al menos una persona"; }
+function updateSplitPreview() {
+  const selected = document.querySelectorAll("[name='participant']:checked").length;
+  const parsed = tryParseMoney($("#expenseForm").elements.amount.value);
+  if (!selected) $("#splitPreview").textContent = "Elegí al menos una persona";
+  else if (!parsed.ok) $("#splitPreview").textContent = "Ingresá un monto válido";
+  else $("#splitPreview").textContent = formatMoney(Math.floor(parsed.value / selected), $("#expenseCurrency").value) + (parsed.value % selected ? " cada uno · se reparte 1 centavo de diferencia" : " cada uno");
+}
 function openExpenseDetail(expense) {
   state.selectedExpense = expense;
   const participants = expense.participantMemberIds.map(nameOf).map(esc).join(", ");
   const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
-  $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + category.emoji + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Pagó</dt><dd>' + esc(nameOf(expense.payerMemberId)) + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
+  $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + esc(category.emoji) + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Pagó</dt><dd>' + esc(nameOf(expense.payerMemberId)) + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
   $("#editExpenseButton").hidden = isReadOnly();
   $("#deleteExpenseButton").hidden = isReadOnly();
   dialogs.expenseDetailModal.showModal();
@@ -538,19 +569,33 @@ function openPrimaryCurrencyModal() {
   $("#primaryCurrencyError").hidden = true; dialogs.primaryCurrencyModal.showModal();
 }
 
-function openMemberModal() {
-  dialogs.countActionsModal.close();
-  $("#memberError").hidden = true;
+function memberRoleLabel(member) {
+  if (member.type === "manual") return "Manual";
+  return member.role === "owner" ? "Owner" : "Integrante";
+}
+
+function renderMemberList() {
   const list = $("#memberList");
   list.replaceChildren();
-  activeMembers().forEach((member) => {
+  const members = activeMembers();
+  if (!members.length) {
+    list.innerHTML = '<div class="empty-category-row">Todavía no hay integrantes activos.</div>';
+    return;
+  }
+  members.forEach((member) => {
     const row = document.createElement("article");
     row.className = "member-row member-row-action";
     const name = memberName(member);
-    row.innerHTML = '<span class="member-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + (member.role === "owner" ? "Owner" : "Integrante") + '</small></span><span class="chevron">›</span>';
+    row.innerHTML = '<span class="member-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + memberRoleLabel(member) + '</small></span><span class="chevron">›</span>';
     on(row, "click", () => openMemberActions(member));
     list.append(row);
   });
+}
+
+function openMemberModal() {
+  dialogs.countActionsModal.close();
+  $("#memberError").hidden = true;
+  renderMemberList();
   $("#memberAddButton").disabled = isReadOnly();
   dialogs.memberModal.showModal();
 }
@@ -700,8 +745,8 @@ on($("#categoryForm"), "submit", async (event) => {
   } finally { setBusy(button, false, "Guardar"); }
 });
 on($("#expenseForm"), "submit", async (event) => {
-  event.preventDefault(); const form = event.currentTarget; const participants = [...form.querySelectorAll("[name='participant']:checked")].map((input) => input.value); const amountMinor = parseMoney(form.elements.amount.value); const button = $("#saveExpenseButton"); $("#expenseError").hidden = true;
-  if (!participants.length || amountMinor <= 0) { $("#expenseError").textContent = participants.length ? "El monto tiene que ser mayor a cero." : "Elegí al menos una persona."; $("#expenseError").hidden = false; return; }
+  event.preventDefault(); const form = event.currentTarget; const participants = [...form.querySelectorAll("[name='participant']:checked")].map((input) => input.value); const parsedAmount = tryParseMoney(form.elements.amount.value); const amountMinor = parsedAmount.value; const button = $("#saveExpenseButton"); $("#expenseError").hidden = true;
+  if (!participants.length || !parsedAmount.ok || amountMinor <= 0) { $("#expenseError").textContent = !participants.length ? "Elegí al menos una persona." : parsedAmount.error?.message || "El monto tiene que ser mayor a cero."; $("#expenseError").hidden = false; return; }
   setBusy(button, true, state.editing ? "Guardar cambios" : "Guardar gasto");
   try {
     await saveExpense({ countId: state.count.id, form: { title: form.elements.title.value, merchantName: form.elements.merchant.value, amountMinor, currency: form.elements.currency.value, expenseDate: form.elements.expenseDate.value, categoryId: form.elements.category.value, payerMemberId: form.elements.payer.value, participantMemberIds: participants, notes: form.elements.notes.value }, members: state.members, categories: state.categories, actor: state.user, expenseId: state.editing?.id, before: state.editing });
@@ -727,7 +772,7 @@ on($("#manualMemberForm"), "submit", async (event) => {
       showToast("✓ Alias actualizado");
     } else {
       const result = await createManualMember({ countId: state.count.id, alias: form.elements.alias.value, actor: state.user });
-      showToast(result.reactivated ? "✓ " + form.elements.alias.value.trim() + " fue reactivada." : "✓ Integrante agregado");
+      showToast(result.reactivated ? "✓ " + form.elements.alias.value.trim() + " fue reactivada." : "✓ Integrante manual agregado");
     }
     dialogs.manualMemberModal.close();
   } catch (exception) { error($("#manualMemberError"), exception, "No pudimos guardar el integrante."); }

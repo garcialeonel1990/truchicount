@@ -59,3 +59,13 @@ export function simplifyDebts(balances) {
 export function actionsForUser(suggestions, memberId) {
   return suggestions.filter((suggestion) => suggestion.fromMemberId === memberId || suggestion.toMemberId === memberId);
 }
+
+// Keep the Count state independent from the current user's actions. A member
+// can be personally up to date while another pair still has a pending payment.
+export function balancePresentation({ suggestions, memberId, ready = true, failed = false }) {
+  if (failed) return { state: "error", suggestions: [], myActions: [] };
+  if (!ready) return { state: "loading", suggestions: [], myActions: [] };
+  const myActions = actionsForUser(suggestions, memberId);
+  if (!suggestions.length) return { state: "settled", suggestions, myActions };
+  return { state: myActions.length ? "actionable" : "up-to-date", suggestions, myActions };
+}

@@ -324,7 +324,10 @@ service cloud.firestore {
     }
 
     match /invites/{token} {
-      allow read: if isAdmin() || isApprovedUser();
+      // A known token can be resolved by an approved user, but invites cannot
+      // be enumerated globally. Members may list only their own Count's links.
+      allow get: if isAdmin() || isApprovedUser();
+      allow list: if isAdmin() || (isApprovedUser() && isCountMember(resource.data.countId));
       allow create: if isAdmin() || (isApprovedUser() && isActiveCountMember(request.resource.data.countId)
         && request.resource.data.createdBy == request.auth.uid)
         || (isDraftOwnerAfter(request.resource.data.countId)

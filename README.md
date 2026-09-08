@@ -53,6 +53,22 @@ El administrador se identifica por su UID de Firebase Authentication, definido e
 
 Las reglas son parte de la implementación: sin desplegarlas, las operaciones de Counts y gastos no tendrán el modelo de permisos de V1.
 
+## Reparación V1 (septiembre de 2026)
+
+La primera entrega de la reparación cubre correcciones verificables en el cliente:
+
+- rutas absolutas para CSS y JavaScript al abrir `/j/{token}`;
+- parseo monetario estricto, sin limpiar texto, signos ni formatos ambiguos;
+- balances globales separados de las acciones de la persona actual, con estados de carga y error;
+- escape defensivo de categorías existentes y validación de emojis nuevos;
+- bloqueo del listado global de invitaciones en Firestore Rules.
+
+Las pruebas puras se ejecutan con Node 20 o superior:
+
+    npm test
+
+La capa confiable de mutaciones críticas indicada en la especificación (Cloud Functions/Emulator, revisión monotónica, idempotencia y auditoría transaccional) todavía no está incorporada. Por lo tanto no hay que desplegar reglas que cierren escrituras directas de gastos o liquidaciones hasta introducir y probar esa capa en un entorno de Firebase separado.
+
 ## Validación manual
 
 1. Entrá con una cuenta aprobada. Si es nueva, aprobala desde la cuenta administradora.

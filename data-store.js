@@ -341,7 +341,11 @@ function cleanCategoryInput({ name, emoji }) {
   const cleanEmoji = String(emoji ?? "").trim();
   if (!cleanName) throw new Error("Ingresá un nombre para la categoría.");
   if (cleanName.length > 20) throw new Error("El nombre puede tener hasta 20 caracteres.");
-  if (!cleanEmoji) throw new Error("Elegí un emoji.");
+  // Accept composed emoji (ZWJ, flags and skin tones), but never arbitrary
+  // markup or text. Rendering still escapes legacy values defensively.
+  const emojiParts = /^[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}\p{Regional_Indicator}\u200D\uFE0F\u20E3#*0-9]+$/u;
+  const hasEmoji = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Regional_Indicator}\u20E3]/u.test(cleanEmoji);
+  if (!cleanEmoji || cleanEmoji.length > 32 || !emojiParts.test(cleanEmoji) || !hasEmoji) throw new Error("Elegí un emoji válido.");
   return { name: cleanName, emoji: cleanEmoji, normalizedName: normalizeCategoryName(cleanName) };
 }
 
@@ -440,16 +444,21 @@ export async function saveExpense({ countId, form, members, categories, actor, e
   const payer = activeMembers.find((member) => member.id === form.payerMemberId);
   const participantMemberIds = [...new Set(form.participantMemberIds)];
   const category = categories.find((item) => item.id === form.categoryId);
-  if (!form.title?.trim() || !form.amountMinor || !payer || !category || !participantMemberIds.length || participantMemberIds.some((memberId) => !activeMembers.some((member) => member.id === memberId))) throw new Error("Revisá los datos obligatorios del gasto.");
-  const merchant = await upsertMerchant(form.merchantName, actor);
+  const title = String(form.title ?? "").trim();
+  const merchantName = String(form.merchantName ?? "").trim();
+  const notes = String(form.notes ?? "").trim();
+  const amountMinor = form.amountMinor;
+  const expenseDate = new Date(`${form.expenseDate}T12:00:00`);
+  if (!title || title.length > 100 || merchantName.length > 100 || notes.length > 500 || !Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !CURRENCIES[form.currency] || Number.isNaN(expenseDate.getTime()) || !payer || !category || !participantMemberIds.length || participantMemberIds.some((memberId) => !activeMembers.some((member) => member.id === memberId))) throw new Error("Revisá los datos obligatorios del gasto.");
+  const merchant = await upsertMerchant(merchantName, actor);
   const ref = expenseId ? doc(db, "counts", countId, "expenses", expenseId) : doc(collection(db, "counts", countId, "expenses"));
-  const participantShares = divideAmount(form.amountMinor, participantMemberIds, form.payerMemberId);
+  const participantShares = divideAmount(amountMinor, participantMemberIds, form.payerMemberId);
   const data = {
-    countId, title: form.title.trim(), merchantId: merchant.id, merchantNameSnapshot: merchant.name,
+    countId, title, merchantId: merchant.id, merchantNameSnapshot: merchant.name,
     categoryId: category.id, categoryNameSnapshot: category.name,
-    amountMinor: form.amountMinor, currency: form.currency, expenseDate: Timestamp.fromDate(new Date(`${form.expenseDate}T12:00:00`)),
+    amountMinor, currency: form.currency, expenseDate: Timestamp.fromDate(expenseDate),
     payerMemberId: payer.id,
-    participantMemberIds, participantShares, splitType: "equal", paymentMethod: null, notes: form.notes?.trim() || "",
+    participantMemberIds, participantShares, splitType: "equal", paymentMethod: null, notes,
     status: "active", updatedAt: serverTimestamp(), updatedBy: actor.uid, schemaVersion: 1,
   };
   const batch = writeBatch(db);
