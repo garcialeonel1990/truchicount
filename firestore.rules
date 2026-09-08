@@ -119,21 +119,24 @@ service cloud.firestore {
                 || hasActiveInvite(request.resource.data.inviteToken, countId)))
           )
         );
-        allow update: if isSuperAdmin() || (isActiveCountMember(countId)
-          && resource.data.active == true
-          && ((resource.data.type == "manual"
-              && request.resource.data.type == "manual"
-              && request.resource.data.userId == null
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                "alias", "normalizedAlias", "active", "removedAt", "removedBy",
-                "updatedAt", "updatedBy"
-              ]))
-            || (resource.data.type == "registered"
-              && request.resource.data.type == "registered"
-              && request.resource.data.userId == resource.data.userId
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                "active", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"
-              ])))
+        allow update: if isSuperAdmin()
+          // Edición y baja de un Member activo por un integrante registrado.
+          || (isActiveCountMember(countId)
+            && resource.data.active == true
+            && ((resource.data.type == "manual"
+                && request.resource.data.type == "manual"
+                && request.resource.data.userId == null
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  "alias", "normalizedAlias", "active", "removedAt", "removedBy",
+                  "updatedAt", "updatedBy"
+                ]))
+              || (resource.data.type == "registered"
+                && request.resource.data.type == "registered"
+                && request.resource.data.userId == resource.data.userId
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  "active", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"
+                ]))))
+          // Reactivación de un manual por un integrante registrado.
           || (signedIn()
             && isActiveCountMember(countId)
             && resource.data.type == "manual"
@@ -143,6 +146,7 @@ service cloud.firestore {
               "alias", "normalizedAlias", "active", "reactivatedAt", "reactivatedBy",
               "removedAt", "removedBy", "updatedAt", "updatedBy"
             ]))
+          // Reactivación de un registrado solamente mediante invitación válida.
           || (signedIn()
             && resource.data.type == "registered"
             && resource.data.userId == request.auth.uid
