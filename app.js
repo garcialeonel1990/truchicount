@@ -1,6 +1,6 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
 import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
-import { calculateNetBalances, simplifyDebts, balancePresentation } from "./balances.js";
+import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
@@ -255,9 +255,13 @@ function renderBalances() {
     });
   }
   const list = $("#balanceList"); list.replaceChildren();
+  const currencies = balanceCurrencies(computed, state.count?.primaryCurrency || state.count?.defaultCurrency || DEFAULT_CURRENCY);
   activeMembers().forEach((member) => {
-    const values = Object.entries(computed[member.id] || {});
-    const amounts = values.length ? values.map(([currency, amount]) => '<span class="' + (amount > 0 ? "positive" : amount < 0 ? "negative" : "") + '">' + (amount > 0 ? "+" : amount < 0 ? "−" : "") + formatMoney(Math.abs(amount), currency) + "</span>").join("") : "<span>" + formatMoney(0) + "</span>";
+    const values = computed[member.id] || {};
+    const amounts = currencies.map((currency) => {
+      const amount = values[currency] || 0;
+      return '<span class="' + (amount > 0 ? "positive" : amount < 0 ? "negative" : "") + '">' + (amount > 0 ? "+" : amount < 0 ? "−" : "") + formatMoney(Math.abs(amount), currency) + "</span>";
+    }).join("");
     const card = document.createElement("article"); card.className = "balance-card";
     const name = memberName(member);
     card.innerHTML = '<span class="balance-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + (member.userId === state.user.uid ? "Vos" : "Integrante") + '</small></span><span class="balance-amount">' + amounts + "</span>";

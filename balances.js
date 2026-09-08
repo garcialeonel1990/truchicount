@@ -60,6 +60,13 @@ export function actionsForUser(suggestions, memberId) {
   return suggestions.filter((suggestion) => suggestion.fromMemberId === memberId || suggestion.toMemberId === memberId);
 }
 
+// A member with no activity in a currency still needs an explicit zero in the
+// UI once that currency exists in the Count. This prevents falling back to ARS.
+export function balanceCurrencies(balances, fallbackCurrency) {
+  const currencies = [...new Set(Object.values(balances).flatMap((byCurrency) => Object.keys(byCurrency)))].sort();
+  return currencies.length ? currencies : [fallbackCurrency];
+}
+
 // Keep the Count state independent from the current user's actions. A member
 // can be personally up to date while another pair still has a pending payment.
 export function balancePresentation({ suggestions, memberId, ready = true, failed = false }) {
