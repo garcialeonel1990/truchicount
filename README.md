@@ -57,10 +57,10 @@ El administrador se identifica por su UID de Firebase Authentication, definido e
    `test:all` ejecuta las pruebas puras y las pruebas de permisos contra el
    Firestore Emulator. El Emulator requiere Java JDK 11 o superior y descarga
    sus binarios localmente la primera vez.
-4. Publicá reglas, índices y hosting únicamente después de una ejecución
-   exitosa:
+4. Publicá reglas, índices y Hosting sólo a través del comando que exige una
+   suite exitosa antes de desplegar:
 
-    firebase deploy --only firestore:rules,firestore:indexes,hosting
+    npm run deploy:checked
 
 Las reglas son parte de la implementación: sin desplegarlas, las operaciones de Counts y gastos no tendrán el modelo de permisos de V1.
 
@@ -85,7 +85,17 @@ Las 22 pruebas de invitaciones y permisos requieren el Emulator:
 
     npm run test:emulator
 
-La capa confiable de mutaciones críticas indicada en la especificación (Cloud Functions/Emulator, revisión monotónica, idempotencia y auditoría transaccional) todavía no está incorporada. Por lo tanto no hay que desplegar reglas que cierren escrituras directas de gastos o liquidaciones hasta introducir y probar esa capa en un entorno de Firebase separado.
+Las mutaciones críticas del cliente se revalidan dentro de transacciones: una
+liquidación debe coincidir con la sugerencia del ledger actual y el archivado o
+la baja de un integrante se decide sobre el mismo snapshot. Las Rules validan
+autoría, moneda, montos y estructura. Firestore Rules no puede sumar un mapa
+de repartos ni inspeccionar todos sus participantes; antes de habilitar
+escrituras desde clientes no confiables hace falta mover esas mutaciones a una
+función privilegiada y probarla en Emulator.
+
+Los balances se calculan siempre sobre el historial completo. No se debe
+paginar gastos o liquidaciones en esta vista hasta contar con un resumen de
+ledger materializado y verificado por servidor.
 
 ## Arranque optimizado
 

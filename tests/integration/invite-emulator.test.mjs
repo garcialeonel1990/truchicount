@@ -143,6 +143,12 @@ test("reglas: un ajeno no puede leer otra membresía", async () => {
   await assertFails(getDoc(membershipRef(client("outsider"), "owner")));
 });
 
+test("reglas: un usuario aprobado no puede leer el perfil de otra persona", async () => {
+  await addUser("outsider");
+  await assertFails(getDoc(doc(client("outsider"), "users", "owner")));
+  assert.equal((await getDoc(doc(client("outsider"), "users", "outsider"))).exists(), true);
+});
+
 test("reglas: un ajeno no puede listar integrantes", async () => {
   await addUser("outsider");
   await assertFails(getDocs(collection(client("outsider"), "counts", COUNT_ID, "members")));
@@ -171,6 +177,17 @@ test("reglas: no se puede crear una membresía con id no canónico", async () =>
 test("reglas: no se puede usar un Member de otro usuario", async () => {
   await addUser("guest");
   await assertFails(setDoc(membershipRef(client("guest"), "guest"), { countId: COUNT_ID, uid: "guest", memberId: "registered_owner", role: "owner", status: "active", inviteToken: TOKEN }));
+});
+
+test("reglas: rechaza gastos con monto inválido o autor falsificado", async () => {
+  const expense = (overrides = {}) => ({
+    countId: COUNT_ID, title: "Cena", amountMinor: 1000, currency: "ARS",
+    payerMemberId: "registered_owner", participantMemberIds: ["registered_owner"],
+    participantShares: { registered_owner: 1000 }, status: "active",
+    createdBy: "owner", updatedBy: "owner", ...overrides,
+  });
+  await assertFails(setDoc(doc(client("owner"), "counts", COUNT_ID, "expenses", "invalidAmount"), expense({ amountMinor: 0 })));
+  await assertFails(setDoc(doc(client("owner"), "counts", COUNT_ID, "expenses", "invalidAuthor"), expense({ createdBy: "guest" })));
 });
 
 test("joinInvite: incrementa el uso sólo al incorporar", async () => {

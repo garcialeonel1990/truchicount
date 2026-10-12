@@ -48,7 +48,7 @@ export async function joinInviteInTransaction({
     const manual = await transaction.get(manualRef);
     if (!manual.exists() || !manual.data().active || manual.data().type !== "manual" || manual.data().userId != null) throw new Error("Este perfil ya fue vinculado a otra cuenta. Elegí otro perfil o continuá con Ninguno de estos.");
     const previousManualAlias = manual.data().manualAlias || manual.data().alias;
-    transaction.update(manualRef, { type: "registered", userId: user.uid, alias: null, role: "owner", previousManualAlias, inviteToken: token, linkedAt: timestamp(), linkedByUid: user.uid, updatedAt: timestamp(), updatedBy: user.uid });
+    transaction.update(manualRef, { type: "registered", userId: user.uid, alias: null, aliasSnapshot: actorName, role: "owner", previousManualAlias, inviteToken: token, linkedAt: timestamp(), linkedByUid: user.uid, updatedAt: timestamp(), updatedBy: user.uid });
     transaction.set(refs.audit(), { entityType: "member", entityId: manualRef.id, countId, action: "manualLinkedToUser", actorUid: user.uid, actorNameSnapshot: actorName, before: { type: "manual", manualAlias: previousManualAlias }, after: { type: "registered", userId: user.uid }, createdAt: timestamp() });
     const data = { memberId: manualRef.id, role: "owner", status: "active", joinedAt: timestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: timestamp(), updatedBy: user.uid };
     if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, ...data, createdAt: timestamp() });
@@ -60,7 +60,7 @@ export async function joinInviteInTransaction({
   if (!isOwnRegisteredMember) {
     const newMemberRef = membership.exists() ? refs.newMember(countId) : memberRef;
     if (member.exists()) throw new Error("Tu acceso a este Count cambió. Volvé a abrir la invitación.");
-    transaction.set(newMemberRef, { memberId: newMemberRef.id, countId, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, inviteToken: token, createdAt: timestamp(), createdBy: user.uid, updatedAt: timestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
+    transaction.set(newMemberRef, { memberId: newMemberRef.id, countId, type: "registered", userId: user.uid, alias: null, aliasSnapshot: actorName, role: "owner", active: true, inviteToken: token, createdAt: timestamp(), createdBy: user.uid, updatedAt: timestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
     transaction.set(refs.audit(), { entityType: "member", entityId: newMemberRef.id, countId, action: "createRegisteredMember", actorUid: user.uid, actorNameSnapshot: actorName, after: { type: "registered", userId: user.uid }, createdAt: timestamp() });
     const data = { memberId: newMemberRef.id, role: "owner", status: "active", joinedAt: timestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: timestamp(), updatedBy: user.uid };
     if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, ...data, createdAt: timestamp() });

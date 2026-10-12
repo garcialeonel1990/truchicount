@@ -93,10 +93,35 @@ service cloud.firestore {
         && isActiveCount(countId);
     }
 
+    function isSupportedCurrency(currency) {
+      return currency == "ARS" || currency == "USD" || currency == "BRL" || currency == "UYU";
+    }
+
+    function hasValidExpenseShape(data, countId) {
+      return data.countId == countId
+        && data.amountMinor is int && data.amountMinor > 0
+        && isSupportedCurrency(data.currency)
+        && data.payerMemberId is string
+        && data.participantMemberIds is list && data.participantMemberIds.size() > 0
+        && data.participantMemberIds.toSet().size() == data.participantMemberIds.size()
+        && data.participantShares is map
+        && data.participantShares.keys().hasOnly(data.participantMemberIds)
+        && data.participantShares.keys().hasAll(data.participantMemberIds);
+    }
+
+    function hasValidSettlementShape(data, countId) {
+      return data.countId == countId
+        && data.amountMinor is int && data.amountMinor > 0
+        && isSupportedCurrency(data.currency)
+        && data.fromMemberId is string && data.toMemberId is string
+        && data.fromMemberId != data.toMemberId;
+    }
+
     match /users/{uid} {
-      // Pendientes y bloqueados leen únicamente su estado. Los aprobados
-      // pueden resolver aliases de integrantes registrados.
-      allow get: if isAdmin() || (signedIn() && request.auth.uid == uid) || isApprovedUser();
+      // Los perfiles contienen email y estado de acceso; un integrante ve su
+      // propio perfil, mientras los aliases compartidos viven como snapshots
+      // dentro de cada Member.
+      allow get: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow list: if isAdmin();
       allow create: if (isAdmin()
           && uid == "8qvbKFXafDXWWGDPo2OFDul6uss1"
@@ -176,13 +201,34 @@ service cloud.firestore {
 
       match /expenses/{expenseId} {
         allow read: if isAdmin() || isCountMember(countId);
-        allow create, update: if isAdmin() || isActiveCountMember(countId);
+        allow create: if isAdmin() || (isActiveCountMember(countId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.status == "active"
+          && hasValidExpenseShape(request.resource.data, countId));
+        allow update: if isAdmin() || (isActiveCountMember(countId)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.updatedBy == request.auth.uid
+          && hasValidExpenseShape(request.resource.data, countId)
+          && ((request.resource.data.status == "active"
+              && resource.data.status == "active")
+            || (request.resource.data.status == "deleted"
+              && request.resource.data.deletedBy == request.auth.uid)));
         allow delete: if isAdmin();
       }
 
       match /settlements/{settlementId} {
         allow read: if isAdmin() || isCountMember(countId);
-        allow create, update: if isAdmin() || isActiveCountMember(countId);
+        allow create: if isAdmin() || (isActiveCountMember(countId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.status == "active"
+          && hasValidSettlementShape(request.resource.data, countId));
+        allow update: if isAdmin() || (isActiveCountMember(countId)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.updatedBy == request.auth.uid
+          && hasValidSettlementShape(request.resource.data, countId)
+          && request.resource.data.status == resource.data.status);
         allow delete: if isAdmin();
       }
 
@@ -277,7 +323,7 @@ service cloud.firestore {
             && getAfter(membershipPath(countId, request.auth.uid)).data.memberId == memberId
             && getAfter(membershipPath(countId, request.auth.uid)).data.status == "active"
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              "type", "userId", "alias", "role", "previousManualAlias", "inviteToken",
+              "type", "userId", "alias", "aliasSnapshot", "role", "previousManualAlias", "inviteToken",
               "linkedAt", "linkedByUid", "updatedAt", "updatedBy"
             ]));
         allow delete: if isAdmin() || (isActiveCountMember(countId)
