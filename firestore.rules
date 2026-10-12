@@ -327,7 +327,7 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.userId == request.auth.uid
           && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.active == true
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"])));
+            .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]))));
       allow delete: if isAdmin()
         || (isDraftOwner(resource.data.countId)
           && resource.data.uid == request.auth.uid

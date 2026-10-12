@@ -64,7 +64,9 @@ beforeEach(async () => {
   await seedBase();
 });
 
-after(async () => env.cleanup());
+after(async () => {
+  if (env) await env.cleanup();
+});
 
 test("joinInvite: primera invitación aprobada crea la membresía", async () => {
   await addUser("guest");
