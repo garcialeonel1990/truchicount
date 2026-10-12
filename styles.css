@@ -1061,7 +1061,9 @@ input:disabled {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 
-/* Compact mobile UI refresh */
+/* Compact mobile UI refresh. These refinements must not override the
+   deliberate tablet/desktop layout declared above. */
+@media (max-width: 639px) {
 .screen {
   padding: 20px 16px calc(92px + env(safe-area-inset-bottom));
 }
@@ -1189,6 +1191,69 @@ input:disabled {
 .option-row-danger { color: #c24152; }
 .option-row-danger > span:first-child { color: #c24152; }
 .option-row:disabled { cursor: not-allowed; background: var(--gray-50); color: var(--gray-400); }
+
+/* Actions are easier to reach as bottom sheets on a phone, while forms stay
+   centered so their fields remain visible above the keyboard. */
+#memberChoiceModal,
+#memberActionModal,
+#countActionsModal,
+#archiveConfirmModal,
+#unarchiveConfirmModal {
+  width: 100%;
+  max-width: none;
+  max-height: calc(100dvh - 24px);
+  margin: auto 0 0;
+}
+
+#memberChoiceModal .modal-card,
+#memberActionModal .modal-card,
+#countActionsModal .modal-card,
+#archiveConfirmModal .modal-card,
+#unarchiveConfirmModal .modal-card {
+  max-height: calc(100dvh - 24px);
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  border-radius: 20px 20px 0 0;
+}
+}
+
+@media (min-width: 640px) {
+  /* Detail navigation has a distinct, spacious desktop treatment instead of
+     inheriting the compact phone header. */
+  .count-context-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px;
+    max-width: 780px;
+    min-height: 72px;
+    margin: 0 auto 24px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--gray-200);
+  }
+
+  .back-button {
+    display: inline-flex;
+    align-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 8px;
+    background: transparent;
+    color: var(--teal-700);
+    font-size: 20px;
+    font-weight: 800;
+  }
+
+  .back-button span { margin-left: 4px; font-size: 14px; }
+  .count-context-copy { min-width: 0; text-align: center; }
+  .count-name-button { width: 100%; overflow: hidden; padding: 3px 0; border: 0; background: transparent; color: var(--gray-900); font-size: 22px; font-weight: 800; letter-spacing: -0.045em; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+  .count-context-copy > p { margin: 3px 0 0; color: var(--gray-500); font-size: 13px; font-weight: 600; }
+  .detail-actions { display: flex; gap: 6px; }
+  .detail-actions .icon-button { border-radius: 12px; background: var(--color-primary-soft); color: var(--teal-700); }
+
+  .settings-topline { display: flex; align-items: center; gap: 10px; max-width: 780px; margin: 0 auto 28px; }
+  .settings-topline h1 { margin: 0; color: var(--gray-900); font-size: 30px; letter-spacing: -0.055em; }
+  .settings-section { width: min(100%, 780px); margin-inline: auto; }
+}
 
 @media (max-width: 359px) {
   .screen { padding-inline: 12px; }
