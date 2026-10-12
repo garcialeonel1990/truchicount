@@ -814,3 +814,13 @@ export async function updateUserSettings(uid, data) {
   }
   return updateDoc(doc(db, "users", uid), { ...data, updatedAt: serverTimestamp() });
 }
+
+// Una persona recién aprobada todavía no pertenece a ningún Count. En ese
+// momento no puede listar memberships (por privacidad), por lo que su primer
+// alias se guarda sólo en su propio perfil. Los cambios posteriores siguen
+// pasando por updateUserSettings y validan conflictos dentro de sus Counts.
+export async function saveInitialUserAlias(uid, alias) {
+  const cleanAlias = String(alias ?? "").trim().replace(/\s+/g, " ");
+  if (!normalizeMemberAlias(cleanAlias)) throw new Error("Ingresá un alias válido.");
+  return updateDoc(doc(db, "users", uid), { alias: cleanAlias, updatedAt: serverTimestamp() });
+}

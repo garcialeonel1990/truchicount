@@ -74,6 +74,12 @@ test("joinInvite: primera invitación aprobada crea la membresía", async () => 
   assert.deepEqual(await join("guest"), { countId: COUNT_ID, alreadyMember: false });
 });
 
+test("reglas: un usuario recién aprobado puede guardar su nickname sin membresías", async () => {
+  await addUser("guest");
+  await updateDoc(doc(client("guest"), "users", "guest"), { alias: "Lola" });
+  assert.equal((await getDoc(doc(client("guest"), "users", "guest"))).data().alias, "Lola");
+});
+
 test("joinInvite: usa el nickname elegido por quien acepta la invitación", async () => {
   await addUser("guest");
   await join("guest", { profileAlias: "Lola" });

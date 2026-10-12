@@ -50,5 +50,6 @@ test("RF-Perfil: quien entra elige su nickname antes de aceptar una invitación"
   assert.match(html, /id="nicknameModal"/);
   assert.match(html, /id="nicknameForm"/);
   assert.match(app, /if \(!String\(profile\.alias \|\| ""\)\.trim\(\)\)/);
+  assert.match(app, /saveInitialUserAlias\(state\.user\.uid, name\)/);
   assert.match(app, /joinInvite\(token, state\.user, \{ profileAlias: state\.profile\?\.alias \}\)/);
 });
