@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { after, before, beforeEach, test } from "node:test";
 import { assertFails, initializeTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { joinInviteInTransaction } from "../../invite-join.js";
 
 const PROJECT_ID = "demo-truchicount";
 const COUNT_ID = "countA";
 const TOKEN = "inviteA";
+const ADMIN_UID = "8qvbKFXafDXWWGDPo2OFDul6uss1";
 let env;
 
 const memberRef = (db, id) => doc(db, "counts", COUNT_ID, "members", id);
@@ -78,6 +79,13 @@ test("reglas: un usuario recién aprobado puede guardar su nickname sin membres�
   await addUser("guest");
   await updateDoc(doc(client("guest"), "users", "guest"), { alias: "Lola" });
   assert.equal((await getDoc(doc(client("guest"), "users", "guest"))).data().alias, "Lola");
+});
+
+test("reglas: sólo el administrador puede eliminar un perfil para reiniciar su acceso", async () => {
+  await addUser("guest");
+  await assertFails(deleteDoc(doc(client("guest"), "users", "guest")));
+  await deleteDoc(doc(client(ADMIN_UID), "users", "guest"));
+  await env.withSecurityRulesDisabled(async (context) => assert.equal((await getDoc(doc(context.firestore(), "users", "guest"))).exists(), false));
 });
 
 test("joinInvite: usa el nickname elegido por quien acepta la invitación", async () => {

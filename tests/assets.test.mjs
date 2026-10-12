@@ -53,3 +53,11 @@ test("RF-Perfil: quien entra elige su nickname antes de aceptar una invitación"
   assert.match(app, /saveInitialUserAlias\(state\.user\.uid, name\)/);
   assert.match(app, /joinInvite\(token, state\.user, \{ profileAlias: state\.profile\?\.alias \}\)/);
 });
+
+test("RF-Admin: puede eliminar un acceso sin historial para reiniciar su solicitud", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const store = await readFile(new URL("../data-store.js", import.meta.url), "utf8");
+  assert.match(app, /textContent = "Eliminar usuario"/);
+  assert.match(store, /export async function deleteUserAccess/);
+  assert.match(store, /No podés eliminar este usuario porque tiene historial/);
+});

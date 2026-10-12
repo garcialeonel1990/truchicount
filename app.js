@@ -1,5 +1,5 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
-import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, refreshUserInfo, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, saveInitialUserAlias, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, deleteUserAccess, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, refreshUserInfo, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, saveInitialUserAlias, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
 import { expensesCsv, summarizeExpenses } from "./summary.js";
@@ -517,6 +517,7 @@ function openAdminUser(user) {
   $("#adminUserError").hidden = true;
   const actions = $("#adminUserActions"); actions.replaceChildren();
   if (user.uid !== ADMIN_UID) {
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger-text-button"; remove.textContent = "Eliminar usuario"; on(remove, "click", () => removeUserAccess(remove)); actions.append(remove);
     if (user.accessStatus === "pending") {
       const reject = document.createElement("button"); reject.type = "button"; reject.className = "danger-button"; reject.textContent = "Rechazar"; on(reject, "click", () => changeUserAccess("blocked", reject)); actions.append(reject);
       const approve = document.createElement("button"); approve.type = "button"; approve.className = "primary-button"; approve.textContent = "Aprobar"; on(approve, "click", () => changeUserAccess("approved", approve)); actions.append(approve);
@@ -536,6 +537,16 @@ async function changeUserAccess(status, button) {
   $("#adminUserError").hidden = true; setBusy(button, true, label);
   try { await updateUserAccess({ target: user, status, actor: state.user }); dialogs.adminUserModal.close(); }
   catch (exception) { error($("#adminUserError"), exception, "No pudimos actualizar el acceso."); setBusy(button, false, label); }
+}
+
+async function removeUserAccess(button) {
+  const user = state.adminUser; if (!user) return;
+  const name = user.googleDisplayName || user.email || "este usuario";
+  if (!confirm("¿Eliminar el acceso de " + name + "?\n\nLa próxima vez que ingrese deberá pedir aprobación otra vez. Esto no elimina su cuenta de Google. Sólo se permite si todavía no tiene historial en Counts.")) return;
+  const label = button.textContent;
+  $("#adminUserError").hidden = true; setBusy(button, true, label, "Eliminando…");
+  try { await deleteUserAccess({ target: user, actor: state.user }); dialogs.adminUserModal.close(); showToast("✓ Usuario eliminado. Podrá solicitar acceso nuevamente."); }
+  catch (exception) { error($("#adminUserError"), exception, "No pudimos eliminar el usuario."); setBusy(button, false, label); }
 }
 
 function openCategoryModal(category = null) {

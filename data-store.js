@@ -95,6 +95,19 @@ export async function updateUserAccess({ target, status, actor }) {
   await batch.commit();
 }
 
+export async function deleteUserAccess({ target, actor }) {
+  if (actor.uid !== ADMIN_UID) throw new Error("No tenés permisos de administración.");
+  if (target.uid === ADMIN_UID) throw new Error("No podés eliminar el acceso del administrador.");
+  // No eliminamos perfiles con historia: así un reingreso no puede perder ni
+  // desvincular gastos existentes. Para esos casos se usa Bloquear.
+  const memberships = await getDocs(query(collection(db, "memberships"), where("uid", "==", target.uid)));
+  if (!memberships.empty) throw new Error("No podés eliminar este usuario porque tiene historial en uno o más Counts. Podés bloquear su acceso en su lugar.");
+  const batch = writeBatch(db);
+  batch.delete(doc(db, "users", target.uid));
+  audit(batch, { entityType: "userAccess", entityId: target.uid, action: "deleteAccess", actor, before: { accessStatus: target.accessStatus }, after: null });
+  await batch.commit();
+}
+
 export function watchCounts(uid, onChange, onError) {
   const countWatches = new Map();
   const countStates = new Map();

@@ -152,7 +152,9 @@ service cloud.firestore {
           && ((!resource.data.keys().hasAll(["accessStatus"])
               && request.resource.data.accessStatus == "pending")
             || request.resource.data.accessStatus == resource.data.accessStatus));
-      allow delete: if false;
+      // El administrador puede quitar un perfil sin historial para que la
+      // próxima autenticación vuelva a crear una solicitud pendiente.
+      allow delete: if isAdmin();
     }
 
     match /counts/{countId} {
