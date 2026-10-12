@@ -46,12 +46,26 @@ El administrador se identifica por su UID de Firebase Authentication, definido e
 ## Configurar y desplegar
 
 1. En Firebase Authentication, habilitá el proveedor Google y autorizá el dominio de Hosting.
-2. Instalá Firebase CLI si todavía no está disponible.
-3. Publicá reglas y hosting:
+2. Instalá dependencias de desarrollo (Node 20 o superior):
 
-    firebase deploy --only firestore:rules,hosting
+    npm install
+
+3. Ejecutá las pruebas antes de cualquier despliegue:
+
+    npm run test:all
+
+   `test:all` ejecuta las pruebas puras y las pruebas de permisos contra el
+   Firestore Emulator. El Emulator requiere Java JDK 11 o superior y descarga
+   sus binarios localmente la primera vez.
+4. Publicá reglas, índices y hosting únicamente después de una ejecución
+   exitosa:
+
+    firebase deploy --only firestore:rules,firestore:indexes,hosting
 
 Las reglas son parte de la implementación: sin desplegarlas, las operaciones de Counts y gastos no tendrán el modelo de permisos de V1.
+
+Hosting excluye reglas, índices, pruebas y archivos de desarrollo; sólo se
+publican los recursos de la aplicación.
 
 ## Reparación V1 (septiembre de 2026)
 
@@ -66,6 +80,10 @@ La primera entrega de la reparación cubre correcciones verificables en el clien
 Las pruebas puras se ejecutan con Node 20 o superior:
 
     npm test
+
+Las 22 pruebas de invitaciones y permisos requieren el Emulator:
+
+    npm run test:emulator
 
 La capa confiable de mutaciones críticas indicada en la especificación (Cloud Functions/Emulator, revisión monotónica, idempotencia y auditoría transaccional) todavía no está incorporada. Por lo tanto no hay que desplegar reglas que cierren escrituras directas de gastos o liquidaciones hasta introducir y probar esa capa en un entorno de Firebase separado.
 

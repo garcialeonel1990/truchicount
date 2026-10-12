@@ -16,6 +16,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 import { db } from "./firebase.js";
 import { calculateNetBalances } from "./balances.js";
+import { joinInviteInTransaction } from "./invite-join.js";
 import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
 
 const toItem = (snapshot) => ({ id: snapshot.id, ...snapshot.data() });
@@ -818,63 +819,16 @@ export async function createInvite(countId, actor) {
 }
 
 export async function joinInvite(token, user, { manualMemberId = undefined } = {}) {
-  const inviteRef = doc(db, "invites", token);
-  return runTransaction(db, async (transaction) => {
-    const invite = await transaction.get(inviteRef);
-    if (!invite.exists() || invite.data().status === "invalid") throw new Error("Esta invitación no existe o ya no está activa.");
-    if (invite.data().status === "draft") throw new Error("Este Count todavía se está configurando. Volvé a intentar cuando esté activo.");
-    if (invite.data().status !== "active") throw new Error("Esta invitación no existe o ya no está activa.");
-    const countId = invite.data().countId;
-    const membershipRef = doc(db, "memberships", `${countId}_${user.uid}`);
-    const membership = await transaction.get(membershipRef);
-    // The document id is part of the authorization boundary. Never reuse a
-    // malformed historical membership to enter a different Count or account.
-    if (membership.exists() && (membership.data().countId !== countId || membership.data().uid !== user.uid)) {
-      throw new Error("La membresía de esta invitación no es válida. Pedí un link nuevo al Count.");
-    }
-    const knownMemberId = membership.exists() && membership.data().memberId;
-    const memberRef = doc(db, "counts", countId, "members", knownMemberId || `registered_${user.uid}`);
-    const member = await transaction.get(memberRef);
-    const needsMembership = !membership.exists() || membership.data().status !== "active";
-    const isOwnRegisteredMember = member.exists() && member.data().type === "registered" && member.data().userId === user.uid;
-    if (isOwnRegisteredMember && member.data().active && !needsMembership) return { countId, alreadyMember: true };
-    if (isOwnRegisteredMember && member.data().active && needsMembership) {
-      if (membership.exists()) transaction.update(membershipRef, { memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
-      else transaction.set(membershipRef, { countId, uid: user.uid, memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
-      transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + 1, lastUsedAt: serverTimestamp() });
-      return { countId, alreadyMember: true };
-    }
-    const candidates = (invite.data().manualCandidates || []).filter((candidate) => candidate?.memberId && candidate?.alias);
-    if (!isOwnRegisteredMember && manualMemberId === undefined && candidates.length) return { countId, candidates, requiresIdentityChoice: true };
-    if (manualMemberId) {
-      if (isOwnRegisteredMember) throw new Error("Ya sos integrante de este Count.");
-      const manualRef = doc(db, "counts", countId, "members", manualMemberId);
-      const manual = await transaction.get(manualRef);
-      if (!manual.exists() || !manual.data().active || manual.data().type !== "manual" || manual.data().userId != null) throw new Error("Este perfil ya fue vinculado a otra cuenta. Elegí otro perfil o continuá con Ninguno de estos.");
-      const previousManualAlias = manual.data().manualAlias || manual.data().alias;
-      transaction.update(manualRef, { type: "registered", userId: user.uid, alias: null, role: "owner", previousManualAlias, inviteToken: token, linkedAt: serverTimestamp(), linkedByUid: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid });
-      transaction.set(auditRef(), { entityType: "member", entityId: manualRef.id, countId, action: "manualLinkedToUser", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", before: { type: "manual", manualAlias: previousManualAlias }, after: { type: "registered", userId: user.uid }, createdAt: serverTimestamp() });
-      if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: manualRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
-      else if (needsMembership) transaction.update(membershipRef, { memberId: manualRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
-      transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + (needsMembership ? 1 : 0), lastUsedAt: serverTimestamp() });
-      return { countId, linkedManual: true };
-    }
-    if (!isOwnRegisteredMember) {
-      const newMemberRef = membership.exists() ? doc(collection(db, "counts", countId, "members")) : memberRef;
-      if (member.exists()) throw new Error("Tu acceso a este Count cambió. Volvé a abrir la invitación.");
-      transaction.set(newMemberRef, { memberId: newMemberRef.id, countId, type: "registered", userId: user.uid, alias: null, role: "owner", active: true, inviteToken: token, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
-      transaction.set(auditRef(), { entityType: "member", entityId: newMemberRef.id, countId, action: "createRegisteredMember", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", after: { type: "registered", userId: user.uid }, createdAt: serverTimestamp() });
-      if (!membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: newMemberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
-      else transaction.update(membershipRef, { memberId: newMemberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
-    } else if (!member.data().active) {
-      transaction.update(memberRef, { active: true, inviteToken: token, reactivatedAt: serverTimestamp(), reactivatedBy: user.uid, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
-      transaction.set(auditRef(), { entityType: "member", entityId: memberRef.id, countId, action: "reactivateMember", actorUid: user.uid, actorNameSnapshot: user.displayName || user.email || "Usuario", before: { active: false }, after: { active: true }, createdAt: serverTimestamp() });
-    }
-    if (isOwnRegisteredMember && !membership.exists()) transaction.set(membershipRef, { countId, uid: user.uid, memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, createdAt: serverTimestamp() });
-    else if (isOwnRegisteredMember && needsMembership) transaction.update(membershipRef, { memberId: memberRef.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: true, inviteToken: token, removedAt: null, removedBy: null, updatedAt: serverTimestamp(), updatedBy: user.uid });
-    transaction.update(inviteRef, { usageCount: (invite.data().usageCount || 0) + (needsMembership ? 1 : 0), lastUsedAt: serverTimestamp() });
-    return { countId, alreadyMember: !needsMembership };
-  });
+  return runTransaction(db, (transaction) => joinInviteInTransaction({
+    transaction, token, user, manualMemberId, serverTimestamp,
+    refs: {
+      invite: (inviteToken) => doc(db, "invites", inviteToken),
+      membership: (countId, uid) => doc(db, "memberships", `${countId}_${uid}`),
+      member: (countId, memberId) => doc(db, "counts", countId, "members", memberId),
+      newMember: (countId) => doc(collection(db, "counts", countId, "members")),
+      audit: auditRef,
+    },
+  }));
 }
 
 export async function updateUserSettings(uid, data) {
