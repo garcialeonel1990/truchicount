@@ -26,4 +26,5 @@ test("RF-UI: el pie del asistente de Count no deja la acción siguiente aislada"
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(css, /\.wizard-actions \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
   assert.match(css, /\.wizard-actions \.primary-button \{ grid-column: 3; \}/);
+  assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?\.wizard-actions \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}[\s\S]*?\.wizard-actions \.primary-button \{ grid-column: 1 \/ -1; \}/);
 });

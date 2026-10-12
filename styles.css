@@ -856,12 +856,11 @@ input:disabled {
 .count-wizard { gap: 17px; }
 .count-wizard h3 { margin: 0; color: var(--gray-900); font-size: 18px; }
 .wizard-progress {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
   gap: 6px;
   width: 100%;
 }
-.wizard-progress span { height: 5px; border-radius: 999px; background: var(--gray-200); }
+.wizard-progress span { flex: 1 1 0; min-width: 0; height: 5px; border-radius: 999px; background: var(--gray-200); }
 .wizard-progress span.is-active { background: var(--teal-600); }
 .wizard-panel { display: grid; gap: 14px; }
 /* The wizard always has a stable three-part footer: cancel on the left and
@@ -1181,6 +1180,10 @@ input:disabled {
 .modal-card { gap: 13px; padding: 20px 16px 16px; border-radius: 16px; }
 .modal-card h2 { margin-right: 42px; font-size: 20px; }
 .close-button { top: 10px; right: 10px; width: 44px; height: 44px; font-size: 26px; }
+.wizard-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wizard-actions .primary-button { grid-column: 1 / -1; }
+.wizard-actions #countCancelButton { grid-column: 1; }
+.wizard-actions #countBackButton { grid-column: 2; }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-right: 42px; }
 .modal-heading h2 { margin: 0; }
 .modal-heading .text-button { min-height: 44px; white-space: nowrap; }
