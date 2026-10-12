@@ -21,3 +21,9 @@ test("RF-UI: los ajustes compactos no pisan el layout de escritorio", async () =
   assert.match(css, /@media \(min-width: 640px\) \{\s*\/\* Detail navigation/s);
   assert.match(css, /@media \(min-width: 900px\) \{[\s\S]*?\.modal \{ width: min\(calc\(100% - 48px\), 620px\)/);
 });
+
+test("RF-UI: el pie del asistente de Count no deja la acción siguiente aislada", async () => {
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.wizard-actions \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
+  assert.match(css, /\.wizard-actions \.primary-button \{ grid-column: 3; \}/);
+});

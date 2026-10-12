@@ -855,12 +855,22 @@ input:disabled {
 
 .count-wizard { gap: 17px; }
 .count-wizard h3 { margin: 0; color: var(--gray-900); font-size: 18px; }
-.wizard-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.wizard-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
 .wizard-progress span { height: 5px; border-radius: 999px; background: var(--gray-200); }
 .wizard-progress span.is-active { background: var(--teal-600); }
 .wizard-panel { display: grid; gap: 14px; }
-.wizard-actions { grid-template-columns: 1fr 1fr; }
-.wizard-actions .primary-button { grid-column: span 1; }
+/* The wizard always has a stable three-part footer: cancel on the left and
+   navigation on the right. This prevents "Siguiente" wrapping under the
+   other actions at desktop widths. */
+.wizard-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wizard-actions .primary-button { grid-column: 3; }
+.wizard-actions #countCancelButton { grid-column: 1; }
+.wizard-actions #countBackButton { grid-column: 2; }
 .draft-invite { display: grid; gap: 10px; padding-top: 4px; border-top: 1px solid var(--gray-200); }
 .draft-invite strong { color: var(--gray-900); font-size: 15px; }
 .draft-member-actions { display: flex; align-items: center; gap: 7px; }
