@@ -7,7 +7,7 @@ import { expensesCsv, summarizeExpenses } from "./summary.js";
 const $ = (s) => document.querySelector(s);
 const state = { user: null, profile: null, accessStarted: false, screen: "startup", generation: 0, profileCreationStarted: false, homeLoading: { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], categoriesReady: false, merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
 const unsubscribers = { access: [], app: [], resources: [], admin: [], detail: [], profiles: [] };
-const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "nicknameModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 const startupMarks = new Set();
 const startupDiagnostics = new URLSearchParams(location.search).has("startupDebug") || (() => { try { return localStorage.getItem("truchicountStartupDebug") === "1"; } catch { return false; } })();
 let categoriesPromise = null;
@@ -124,6 +124,12 @@ function handleAccessProfile(profile, metadata = {}, generation = state.generati
     stop("app"); stop("admin"); stop("detail"); stop("profiles"); state.accessStarted = false;
     return;
   }
+  if (!String(profile.alias || "").trim()) {
+    state.accessStarted = false;
+    $("#nicknameError").hidden = true;
+    if (!dialogs.nicknameModal.open) dialogs.nicknameModal.showModal();
+    return;
+  }
   if (state.accessStarted) { renderHeader(); if (state.screen === "settings") renderSettings(); if (state.screen === "detail") renderDetail(); return; }
   state.accessStarted = true;
   startAppWatches(generation);
@@ -196,7 +202,7 @@ function inviteToken() {
 }
 async function acceptInvite(token) {
   try {
-    const result = await joinInvite(token, state.user);
+    const result = await joinInvite(token, state.user, { profileAlias: state.profile?.alias });
     if (result.requiresIdentityChoice) { openInviteIdentityChoice(token, result); return; }
     history.replaceState({}, "", "/"); clearPendingInvite();
     if (result.alreadyMember) showToast("Ya sos integrante de este Count.");
@@ -223,7 +229,7 @@ async function chooseInviteIdentity(candidate = null) {
   if (candidate && !confirm("¿Sos " + candidate.alias + "?\n\nEste perfil se va a vincular de forma permanente con tu cuenta de TruchiCount y conservará todo su historial.")) return;
   $("#inviteIdentityError").hidden = true;
   try {
-    const result = await joinInvite(identity.token, state.user, { manualMemberId: candidate?.memberId ?? null });
+    const result = await joinInvite(identity.token, state.user, { manualMemberId: candidate?.memberId ?? null, profileAlias: state.profile?.alias });
     history.replaceState({}, "", "/"); clearPendingInvite(); dialogs.inviteIdentityModal.close(); state.inviteIdentity = null;
     if (result.linkedManual) showToast("Perfil vinculado correctamente. Tus movimientos anteriores se conservaron.");
     openCount(result.countId);
@@ -641,7 +647,7 @@ async function openCountModal() {
   if (!state.user) return;
   const trigger = $("#newCountButton"); if (trigger) trigger.disabled = true;
   try {
-    state.draft = await startCountDraft({ user: state.user });
+    state.draft = await startCountDraft({ user: state.user, profileAlias: state.profile?.alias });
     state.draft.primaryCurrency = state.profile?.defaultCurrency || DEFAULT_CURRENCY;
     state.draftMembers = await getDraftMembers(state.draft.id);
     state.draftStep = 1; $("#countError").hidden = true; renderCountWizard(); dialogs.countModal.showModal();
@@ -1013,3 +1019,6 @@ on($("#copyInviteButton"), "click", async () => { try { await navigator.clipboar
 on($("#shareInviteButton"), "click", async () => { const url = $("#inviteLink").value; if (navigator.share) { try { await navigator.share({ title: state.count?.name || "TruchiCount", text: "Sumate a mi Count en TruchiCount", url }); } catch {} } else { await navigator.clipboard.writeText(url); $("#inviteStatus").textContent = "Link copiado."; $("#inviteStatus").hidden = false; } });
 on($("#accountForm"), "submit", async (event) => { event.preventDefault(); const name = $("#accountName").value.trim(); const button = event.submitter; if (!name) return; $("#accountError").hidden = true; setBusy(button, true, "Guardar"); try { await updateUserSettings(state.user.uid, { alias: name }); dialogs.accountModal.close(); } catch (exception) { error($("#accountError"), exception, "No pudimos guardar el alias."); } finally { setBusy(button, false, "Guardar"); } });
 on($("#logoutButton"), "click", async () => { if (confirm("¿Querés cerrar sesión?")) await signOutUser(); });
+on($("#nicknameForm"), "submit", async (event) => { event.preventDefault(); const name = $("#nicknameInput").value.trim(); const button = event.submitter; if (!name) return; $("#nicknameError").hidden = true; setBusy(button, true, "Continuar"); try { await updateUserSettings(state.user.uid, { alias: name }); dialogs.nicknameModal.close(); } catch (exception) { error($("#nicknameError"), exception, "No pudimos guardar tu nickname."); } finally { setBusy(button, false, "Continuar"); } });
+on($("#nicknameLogoutButton"), "click", () => signOutUser());
+on(dialogs.nicknameModal, "cancel", (event) => event.preventDefault());

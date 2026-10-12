@@ -41,6 +41,7 @@ async function join(uid, options = {}) {
     token: TOKEN,
     user: { uid, displayName: uid },
     manualMemberId: options.manualMemberId,
+    profileAlias: options.profileAlias,
     serverTimestamp,
     refs: {
       invite: () => inviteRef(db),
@@ -71,6 +72,12 @@ after(async () => {
 test("joinInvite: primera invitación aprobada crea la membresía", async () => {
   await addUser("guest");
   assert.deepEqual(await join("guest"), { countId: COUNT_ID, alreadyMember: false });
+});
+
+test("joinInvite: usa el nickname elegido por quien acepta la invitación", async () => {
+  await addUser("guest");
+  await join("guest", { profileAlias: "Lola" });
+  assert.equal((await getDoc(memberRef(client("guest"), "registered_guest"))).data().aliasSnapshot, "Lola");
 });
 
 test("joinInvite: la lectura de la membresía propia inexistente está permitida", async () => {

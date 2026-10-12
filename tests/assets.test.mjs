@@ -43,3 +43,12 @@ test("RF-Perfil: el alias propio se muestra antes del nombre histórico del inte
   assert.match(app, /member\?\.userId === state\.user\?\.uid \? state\.profile/);
   assert.match(app, /profile\?\.alias \|\| member\?\.aliasSnapshot/);
 });
+
+test("RF-Perfil: quien entra elige su nickname antes de aceptar una invitación", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(html, /id="nicknameModal"/);
+  assert.match(html, /id="nicknameForm"/);
+  assert.match(app, /if \(!String\(profile\.alias \|\| ""\)\.trim\(\)\)/);
+  assert.match(app, /joinInvite\(token, state\.user, \{ profileAlias: state\.profile\?\.alias \}\)/);
+});

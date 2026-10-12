@@ -7,6 +7,7 @@ export async function joinInviteInTransaction({
   token,
   user,
   manualMemberId = undefined,
+  profileAlias = "",
   serverTimestamp,
 }) {
   const inviteRef = refs.invite(token);
@@ -28,7 +29,7 @@ export async function joinInviteInTransaction({
   const needsMembership = !membership.exists() || membership.data().status !== "active";
   const isOwnRegisteredMember = member.exists() && member.data().type === "registered" && member.data().userId === user.uid;
   const timestamp = () => serverTimestamp();
-  const actorName = user.displayName || user.email || "Usuario";
+  const actorName = String(profileAlias).trim() || user.displayName || user.email || "Usuario";
 
   if (isOwnRegisteredMember && member.data().active && !needsMembership) return { countId, alreadyMember: true };
   if (isOwnRegisteredMember && member.data().active && needsMembership) {

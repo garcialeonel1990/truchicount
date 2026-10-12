@@ -202,7 +202,7 @@ function syncActiveInviteCandidates(batch, countId, invites, members) {
   });
 }
 
-export async function startCountDraft({ user }) {
+export async function startCountDraft({ user, profileAlias = "" }) {
   await clearCurrentDraft(user, { includeRecent: true });
   const count = doc(collection(db, "counts"));
   const membership = doc(db, "memberships", `${count.id}_${user.uid}`);
@@ -215,7 +215,8 @@ export async function startCountDraft({ user }) {
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: user.uid,
     draftExpiresAt: draftExpiry(), draftInviteToken: invite.id, hasMovements: false, schemaVersion: 1,
   });
-  batch.set(member, { memberId: member.id, countId: count.id, type: "registered", userId: user.uid, alias: null, aliasSnapshot: user.displayName || user.email || "Usuario", role: "owner", active: true, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
+  const aliasSnapshot = String(profileAlias).trim() || user.displayName || user.email || "Usuario";
+  batch.set(member, { memberId: member.id, countId: count.id, type: "registered", userId: user.uid, alias: null, aliasSnapshot, role: "owner", active: true, createdAt: serverTimestamp(), createdBy: user.uid, updatedAt: serverTimestamp(), updatedBy: user.uid, removedAt: null, removedBy: null, reactivatedAt: null, reactivatedBy: null, schemaVersion: 1 });
   batch.set(membership, { countId: count.id, uid: user.uid, memberId: member.id, role: "owner", status: "active", joinedAt: serverTimestamp(), joinedByInvite: false, createdAt: serverTimestamp() });
   batch.set(invite, { countId: count.id, status: "draft", createdBy: user.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null, manualCandidates: [] });
   batch.update(doc(db, "users", user.uid), { draftCountId: count.id, draftExpiresAt: draftExpiry(), updatedAt: serverTimestamp() });
@@ -782,9 +783,9 @@ export async function createInvite(countId, actor) {
   return ref.id;
 }
 
-export async function joinInvite(token, user, { manualMemberId = undefined } = {}) {
+export async function joinInvite(token, user, { manualMemberId = undefined, profileAlias = "" } = {}) {
   return runTransaction(db, (transaction) => joinInviteInTransaction({
-    transaction, token, user, manualMemberId, serverTimestamp,
+    transaction, token, user, manualMemberId, profileAlias, serverTimestamp,
     refs: {
       invite: (inviteToken) => doc(db, "invites", inviteToken),
       membership: (countId, uid) => doc(db, "memberships", `${countId}_${uid}`),
