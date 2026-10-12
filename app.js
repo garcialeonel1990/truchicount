@@ -27,7 +27,10 @@ function dateFrom(value) { return value && value.toDate ? value.toDate() : value
 function localDateISO(value = new Date()) { const date = dateFrom(value); return date ? [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-") : ""; }
 function dateISO(value) { return localDateISO(value); }
 function prettyDate(value) { const date = dateFrom(value); return date ? new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(date) : "Sin fecha"; }
-function memberName(member) { const profile = state.memberProfiles[member?.userId]; return member?.type === "manual" ? member.alias : member?.aliasSnapshot || profile?.alias || profile?.googleDisplayName || profile?.displayName || "Integrante"; }
+function memberName(member) {
+  const profile = member?.userId === state.user?.uid ? state.profile : state.memberProfiles[member?.userId];
+  return member?.type === "manual" ? member.alias : profile?.alias || member?.aliasSnapshot || profile?.googleDisplayName || profile?.displayName || "Integrante";
+}
 function nameOf(memberId) { return memberName(state.members.find((member) => member.id === memberId)); }
 function activeMembers() { return state.members.filter((member) => member.active); }
 function activeExpenses() { return state.expenses.filter((expense) => expense.status === "active"); }
@@ -121,7 +124,7 @@ function handleAccessProfile(profile, metadata = {}, generation = state.generati
     stop("app"); stop("admin"); stop("detail"); stop("profiles"); state.accessStarted = false;
     return;
   }
-  if (state.accessStarted) { renderHeader(); if (state.screen === "settings") renderSettings(); return; }
+  if (state.accessStarted) { renderHeader(); if (state.screen === "settings") renderSettings(); if (state.screen === "detail") renderDetail(); return; }
   state.accessStarted = true;
   startAppWatches(generation);
   const token = pendingInviteToken();

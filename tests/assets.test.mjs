@@ -37,3 +37,9 @@ test("RF-Resumen: cada Count ofrece resumen y exportación CSV", async () => {
   assert.match(app, /function exportCountCsv\(\)/);
   assert.match(app, /on\(\$\("#exportSummaryButton"\), "click", exportCountCsv\)/);
 });
+
+test("RF-Perfil: el alias propio se muestra antes del nombre histórico del integrante", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /member\?\.userId === state\.user\?\.uid \? state\.profile/);
+  assert.match(app, /profile\?\.alias \|\| member\?\.aliasSnapshot/);
+});
