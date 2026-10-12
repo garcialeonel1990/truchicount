@@ -13,7 +13,7 @@ Aplicación web para registrar gastos compartidos. Está hecha con HTML, CSS y J
 - Nombre de Count normalizado y único para los nuevos Counts, incluso si uno anterior está archivado.
 - Integrantes registrados por invitación e integrantes manuales editables.
 - Invitaciones por link corto: `/j/{token}`. Un link de draft no permite incorporarse hasta que el Count se active.
-- Moneda principal por Count, usada como predeterminada para los gastos y bloqueada después del primer movimiento.
+- Moneda principal por Count, elegida al crearlo, fija al activarlo y obligatoria para todos sus gastos.
 - Gastos con un pagador, participantes seleccionables y reparto igualitario.
 - Montos guardados como enteros en unidad mínima (amountMinor), nunca como floats.
 - Categorías globales y comercios recordados.

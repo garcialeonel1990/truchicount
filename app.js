@@ -652,8 +652,9 @@ function openExpenseModal(expense) {
   state.editing = expense || null; $("#expenseForm").reset(); $("#expenseError").hidden = true;
   $("#expenseModalTitle").textContent = expense ? "Editar gasto" : "Nuevo gasto";
   const primaryCurrency = state.count?.primaryCurrency || state.count?.defaultCurrency || DEFAULT_CURRENCY;
-  const enabled = [...new Set([...(state.profile?.enabledCurrencies || [DEFAULT_CURRENCY]), primaryCurrency])];
-  putOptions($("#expenseCurrency"), enabled.map((code) => ({ id: code, name: code })), expense?.currency || primaryCurrency);
+  const expenseCurrency = expense?.currency || primaryCurrency;
+  putOptions($("#expenseCurrency"), [{ id: expenseCurrency, name: expenseCurrency }], expenseCurrency);
+  $("#expenseCurrency").disabled = true;
   const categories = activeCategories();
   if (expense && !categories.some((item) => item.id === expense.categoryId)) categories.push({ id: expense.categoryId, name: expense.categoryNameSnapshot || "Categoría histórica", emoji: "🧾" });
   putOptions($("#expenseCategory"), categories.map((item) => ({ id: item.id, name: categoryEmoji(item) + " " + item.name })), expense?.categoryId || categories[0].id);

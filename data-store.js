@@ -470,6 +470,9 @@ async function upsertMerchant(name, actor) {
 }
 
 export async function saveExpense({ countId, form, members, categories, actor, expenseId = null, before = null }) {
+  const countSnapshot = await getDoc(doc(db, "counts", countId));
+  if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("Este Count no está disponible para cargar gastos.");
+  const expectedCurrency = expenseId ? before?.currency : (countSnapshot.data().primaryCurrency || countSnapshot.data().defaultCurrency);
   const activeMembers = members.filter((member) => member.active);
   // Existing movements are historical records: a removed payer or participant
   // must remain valid while editing unrelated fields such as notes.
@@ -483,7 +486,7 @@ export async function saveExpense({ countId, form, members, categories, actor, e
   const notes = String(form.notes ?? "").trim();
   const amountMinor = form.amountMinor;
   const expenseDate = new Date(`${form.expenseDate}T12:00:00`);
-  if (!title || title.length > 100 || merchantName.length > 100 || notes.length > 500 || !Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !CURRENCIES[form.currency] || Number.isNaN(expenseDate.getTime()) || !payer || !category || !participantMemberIds.length || participantMemberIds.some((memberId) => !eligibleMembers.some((member) => member.id === memberId))) throw new Error("Revisá los datos obligatorios del gasto.");
+  if (!title || title.length > 100 || merchantName.length > 100 || notes.length > 500 || !Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !CURRENCIES[form.currency] || form.currency !== expectedCurrency || Number.isNaN(expenseDate.getTime()) || !payer || !category || !participantMemberIds.length || participantMemberIds.some((memberId) => !eligibleMembers.some((member) => member.id === memberId))) throw new Error("Revisá los datos obligatorios del gasto.");
   const merchant = await upsertMerchant(merchantName, actor);
   const ref = expenseId ? doc(db, "counts", countId, "expenses", expenseId) : doc(collection(db, "counts", countId, "expenses"));
   const sameParticipants = before && participantMemberIds.length === (before.participantMemberIds || []).length

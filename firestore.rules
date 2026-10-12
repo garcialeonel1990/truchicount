@@ -199,10 +199,12 @@ service cloud.firestore {
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.updatedBy == request.auth.uid
           && request.resource.data.status == "active"
+          && request.resource.data.currency == get(/databases/$(database)/documents/counts/$(countId)).data.primaryCurrency
           && hasValidExpenseShape(request.resource.data, countId));
         allow update: if isAdmin() || (isActiveCountMember(countId)
           && request.resource.data.createdBy == resource.data.createdBy
           && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.currency == resource.data.currency
           && hasValidExpenseShape(request.resource.data, countId)
           && ((request.resource.data.status == "active"
               && resource.data.status == "active")

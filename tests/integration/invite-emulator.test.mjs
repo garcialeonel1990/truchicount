@@ -188,6 +188,7 @@ test("reglas: rechaza gastos con monto inválido o autor falsificado", async () 
   });
   await assertFails(setDoc(doc(client("owner"), "counts", COUNT_ID, "expenses", "invalidAmount"), expense({ amountMinor: 0 })));
   await assertFails(setDoc(doc(client("owner"), "counts", COUNT_ID, "expenses", "invalidAuthor"), expense({ createdBy: "guest" })));
+  await assertFails(setDoc(doc(client("owner"), "counts", COUNT_ID, "expenses", "otherCurrency"), expense({ currency: "USD" })));
 });
 
 test("reglas: la moneda principal queda fija al activar el Count", async () => {
