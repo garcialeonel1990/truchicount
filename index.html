@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=ui-mobile-v1" />
+    <link rel="stylesheet" href="/styles.css?v=summary-v1" />
   </head>
   <body>
     <section class="login-screen startup-screen" id="startupScreen" aria-live="polite" aria-busy="true">
@@ -40,12 +40,13 @@
 
       <section class="screen" id="detailScreen" hidden>
         <header class="count-context-header"><button class="back-button" id="backButton" type="button" aria-label="Volver a Counts">‹ <span>Counts</span></button><div class="count-context-copy"><button class="count-name-button" id="countTitle" type="button" aria-label="Ver nombre completo del Count"></button><p id="memberSummary"></p><div class="archive-summary" id="archiveSummary" hidden><span class="archive-badge">Archivado</span><p id="archiveMetadata"></p></div></div><div class="detail-actions"><button class="icon-button" id="shareButton" type="button" aria-label="Invitar personas">↗</button><button class="icon-button" id="countActionsButton" type="button" aria-label="Acciones del Count">⋮</button></div></header>
-        <div class="tabs" role="tablist"><button class="tab is-selected" data-tab="expenses" type="button">Gastos</button><button class="tab" data-tab="balances" type="button">Balances</button></div>
+        <div class="tabs" role="tablist"><button class="tab is-selected" data-tab="expenses" type="button">Gastos</button><button class="tab" data-tab="balances" type="button">Balances</button><button class="tab" data-tab="summary" type="button">Resumen</button></div>
         <section class="tab-panel is-active" id="expensesPanel">
           <div class="totals-row" id="totalCards"></div>
           <div class="expense-list" id="expenseList"></div><button class="primary-button add-expense-button" id="addExpenseButton" type="button">+ Agregar gasto</button>
         </section>
         <section class="tab-panel" id="balancesPanel"><section class="action-list" id="balanceActions"></section><h2 class="section-title">Balance por persona</h2><div class="balance-list" id="balanceList"></div></section>
+        <section class="tab-panel" id="summaryPanel"><div class="summary-heading"><div><p class="eyebrow">Resumen del Count</p><h2>En qué gastaron</h2></div><button class="secondary-button summary-export" id="exportSummaryButton" type="button">Exportar CSV</button></div><section class="summary-total" id="summaryTotal"></section><h2 class="section-title">Por categoría</h2><p class="section-copy summary-help">Abrí una categoría para ver cuánto pagó y cuánto le tocó a cada integrante.</p><div class="summary-list" id="categorySummaryList"></div></section>
       </section>
 
       <section class="screen" id="settingsScreen" hidden>
@@ -75,6 +76,6 @@
     <dialog class="modal" id="unarchiveConfirmModal"><section class="modal-card"><button class="close-button" type="button" data-close="unarchiveConfirmModal">×</button><h2 id="unarchiveConfirmTitle">¿Desarchivar Count?</h2><p class="section-copy">El Count volverá a permitir modificaciones.</p><p class="form-error" id="unarchiveConfirmError" hidden></p><div class="modal-actions"><button class="secondary-button" type="button" data-close="unarchiveConfirmModal">Cancelar</button><button class="primary-button" id="confirmUnarchiveButton" type="button">Desarchivar</button></div></section></dialog>
     <dialog class="modal" id="accountModal"><form class="modal-card" id="accountForm"><button class="close-button" type="button" data-close="accountModal">×</button><h2>Mi perfil</h2><p class="section-copy" id="accountEmail"></p><label>Alias<input id="accountName" name="displayName" required maxlength="80" /></label><p class="form-error" id="accountError" hidden></p><button class="primary-button" type="submit">Guardar</button><button class="logout-text-button" id="logoutButton" type="button">Cerrar sesión</button></form></dialog>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <script src="/app.js?v=ui-mobile-v1" type="module"></script>
+    <script src="/app.js?v=summary-v1" type="module"></script>
   </body>
 </html>

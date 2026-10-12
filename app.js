@@ -2,6 +2,7 @@ import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from
 import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, refreshUserInfo, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
+import { expensesCsv, summarizeExpenses } from "./summary.js";
 
 const $ = (s) => document.querySelector(s);
 const state = { user: null, profile: null, accessStarted: false, screen: "startup", generation: 0, profileCreationStarted: false, homeLoading: { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], categoriesReady: false, merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
@@ -332,7 +333,7 @@ function renderDetail() {
   $("#addExpenseButton").hidden = archived;
   $("#archiveSummary").hidden = !archived;
   $("#archiveMetadata").textContent = archived ? "Archivado el " + prettyDate(state.count.lastArchivedAt) + " por " + (state.count.lastArchivedByNameSnapshot || "un integrante") : "";
-  renderExpenses(); renderBalances();
+  renderExpenses(); renderBalances(); renderSummary();
 }
 
 function totals(items) { return items.reduce((all, item) => Object.assign(all, { [item.currency]: (all[item.currency] || 0) + item.amountMinor }), {}); }
@@ -399,6 +400,53 @@ function renderBalances() {
     card.innerHTML = '<span class="balance-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong>' + (member.userId === state.user.uid ? '<small>Vos</small>' : "") + '</span><span class="balance-amount">' + amounts + "</span>";
     list.append(card);
   });
+}
+
+function moneySummary(totalsByCurrency) {
+  const values = Object.entries(totalsByCurrency);
+  return values.length ? values.map(([currency, amount]) => formatMoney(amount, currency)).join(" · ") : formatMoney(0, state.count?.primaryCurrency || DEFAULT_CURRENCY);
+}
+
+function renderSummary() {
+  const total = $("#summaryTotal");
+  const list = $("#categorySummaryList");
+  const summary = summarizeExpenses(state.expenses);
+  const expenseCount = activeExpenses().length;
+  $("#exportSummaryButton").disabled = !expenseCount;
+  total.innerHTML = '<strong>' + moneySummary(summary.totalByCurrency) + '</strong><span>' + expenseCount + (expenseCount === 1 ? " gasto registrado" : " gastos registrados") + "</span>";
+  list.replaceChildren();
+  if (!expenseCount) {
+    list.innerHTML = '<section class="empty-state"><strong>Todavía no hay gastos para resumir.</strong><span>Cuando agreguen gastos, vas a verlos agrupados por categoría.</span></section>';
+    return;
+  }
+  summary.categories.forEach((item) => {
+    const category = categoryDisplay(item.categoryId, item.categoryNameSnapshot);
+    const totals = Object.entries(item.totals).map(([currency, amount]) => {
+      const overall = summary.totalByCurrency[currency] || 0;
+      const percent = overall ? Math.round((amount / overall) * 100) : 0;
+      return formatMoney(amount, currency) + " · " + percent + "%";
+    }).join(" · ");
+    const row = document.createElement("details"); row.className = "category-summary";
+    const people = Object.entries(item.people).sort(([a], [b]) => nameOf(a).localeCompare(nameOf(b), "es"));
+    row.innerHTML = '<summary><span class="summary-category-icon" aria-hidden="true">' + esc(category.emoji) + '</span><span class="summary-category-copy"><strong>' + esc(category.name) + '</strong><small>' + item.expenseCount + (item.expenseCount === 1 ? " gasto" : " gastos") + '</small></span><span class="summary-category-total">' + totals + '</span><span class="chevron">⌄</span></summary><div class="summary-people">' + people.map(([memberId, values]) => '<article><span><strong>' + esc(nameOf(memberId)) + '</strong>' + (state.members.find((member) => member.id === memberId)?.active === false ? '<small>Integrante anterior</small>' : "") + '</span><span><small>Pagó ' + moneySummary(values.paid) + '</small><small>Le tocó ' + moneySummary(values.share) + '</small></span></article>').join("") + '</div>';
+    list.append(row);
+  });
+}
+
+function exportCountCsv() {
+  const expenses = activeExpenses();
+  if (!expenses.length) return;
+  const text = expensesCsv(expenses, {
+    categoryName: (expense) => categoryDisplay(expense.categoryId, expense.categoryNameSnapshot).name,
+    memberName: nameOf,
+    date: localDateISO,
+    money: formatMoney,
+  });
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "truchicount-" + String(state.count?.name || "resumen").replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() + ".csv";
+  document.body.append(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
 }
 
 function putOptions(select, items, selected, empty) {
@@ -839,7 +887,7 @@ function openUnarchiveConfirmation() {
 on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true; const button = $("#googleLoginButton"); setBusy(button, true, "Continuar con Google"); try { await signInWithGoogle(); } catch (exception) { error($("#authError"), exception, "No se pudo iniciar sesión."); setBusy(button, false, "Continuar con Google"); } });
 on($("#retryAccessButton"), "click", async () => { if (!state.user) return; try { await ensureUser(state.user); } catch (exception) { console.error(exception); } });
 on($("#pendingLogoutButton"), "click", () => signOutUser()); on($("#blockedLogoutButton"), "click", () => signOutUser());
-on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal);
+on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal); on($("#exportSummaryButton"), "click", exportCountCsv);
 on($("#countTitle"), "click", () => { if (state.count?.name) showToast(state.count.name); });
 on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
 on($("#draftAddMemberButton"), "click", () => openDraftMemberModal()); on($("#copyDraftInviteButton"), "click", () => copyDraftInvite($("#draftInviteLink"), $("#draftInviteStatus"))); on($("#copyConfirmInviteButton"), "click", () => copyDraftInvite($("#countConfirmInvite")));

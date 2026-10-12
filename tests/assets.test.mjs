@@ -28,3 +28,12 @@ test("RF-UI: el pie del asistente de Count no deja la acción siguiente aislada"
   assert.match(css, /\.wizard-actions \.primary-button \{ grid-column: 3; \}/);
   assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?\.wizard-actions \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}[\s\S]*?\.wizard-actions \.primary-button \{ grid-column: 1 \/ -1; \}/);
 });
+
+test("RF-Resumen: cada Count ofrece resumen y exportación CSV", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /data-tab="summary"[^>]*>Resumen/);
+  assert.match(html, /id="exportSummaryButton"/);
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /function exportCountCsv\(\)/);
+  assert.match(app, /on\(\$\("#exportSummaryButton"\), "click", exportCountCsv\)/);
+});
