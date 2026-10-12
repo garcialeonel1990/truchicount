@@ -1,12 +1,12 @@
 import { completeRedirectSignIn, signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
-import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, refreshUserInfo, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateCountPrimaryCurrency, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
+import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, refreshUserInfo, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
 
 const $ = (s) => document.querySelector(s);
 const state = { user: null, profile: null, accessStarted: false, screen: "startup", generation: 0, profileCreationStarted: false, homeLoading: { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], categoriesReady: false, merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
 const unsubscribers = { access: [], app: [], resources: [], admin: [], detail: [], profiles: [] };
-const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "primaryCurrencyModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
+const dialogs = ["countModal", "draftMemberModal", "categoryModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 const startupMarks = new Set();
 const startupDiagnostics = new URLSearchParams(location.search).has("startupDebug") || (() => { try { return localStorage.getItem("truchicountStartupDebug") === "1"; } catch { return false; } })();
 let categoriesPromise = null;
@@ -710,14 +710,6 @@ function openCountActions() {
   const pending = pendingCurrencies();
   const manageMembersAction = $("#manageMembersAction");
   if (manageMembersAction) manageMembersAction.hidden = archived;
-  const changeCurrency = $("#changePrimaryCurrencyAction");
-  if (changeCurrency) {
-    const locked = Boolean(state.count?.hasMovements) || state.expenses.length > 0 || state.settlements.length > 0;
-    changeCurrency.hidden = archived;
-    changeCurrency.disabled = locked;
-    changeCurrency.title = locked ? "La moneda principal queda fija después del primer movimiento." : "";
-    $("#currencyActionNote").textContent = locked ? "No se puede cambiar después del primer movimiento." : "";
-  }
   $("#archiveCountAction").hidden = archived;
   $("#unarchiveCountAction").hidden = !archived;
   $("#archiveCountAction").disabled = !archived && pending.length > 0;
@@ -726,12 +718,6 @@ function openCountActions() {
     ? "No se puede archivar porque todavía hay saldo pendiente en " + pending[0] + "."
     : "No se puede archivar porque todavía hay saldos pendientes.";
   dialogs.countActionsModal.showModal();
-}
-
-function openPrimaryCurrencyModal() {
-  if (!state.count || state.count.hasMovements || state.expenses.length || state.settlements.length) return;
-  renderCurrencyChoices($("#primaryCurrencyChoices"), "primaryCurrency", state.count.primaryCurrency || state.count.defaultCurrency || DEFAULT_CURRENCY);
-  $("#primaryCurrencyError").hidden = true; dialogs.primaryCurrencyModal.showModal();
 }
 
 function memberRoleLabel(member) {
@@ -857,7 +843,6 @@ on($("#countTitle"), "click", () => { if (state.count?.name) showToast(state.cou
 on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
 on($("#draftAddMemberButton"), "click", () => openDraftMemberModal()); on($("#copyDraftInviteButton"), "click", () => copyDraftInvite($("#draftInviteLink"), $("#draftInviteStatus"))); on($("#copyConfirmInviteButton"), "click", () => copyDraftInvite($("#countConfirmInvite")));
 on($("#inviteNoneButton"), "click", () => chooseInviteIdentity());
-on($("#changePrimaryCurrencyAction"), "click", () => { dialogs.countActionsModal.close(); openPrimaryCurrencyModal(); });
 on($("#memberAddButton"), "click", () => dialogs.memberChoiceModal.showModal());
 on($("#inviteMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); dialogs.memberModal.close(); openInviteModal(); });
 on($("#manualMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); openManualMemberModal(); });
@@ -888,13 +873,6 @@ on($("#draftMemberForm"), "submit", async (event) => {
     dialogs.draftMemberModal.close(); await refreshDraftMembers();
   } catch (exception) { error($("#draftMemberError"), exception, "No pudimos guardar el integrante."); }
   finally { setBusy(button, false, member ? "Guardar" : "Agregar"); }
-});
-on($("#primaryCurrencyForm"), "submit", async (event) => {
-  event.preventDefault(); const button = event.submitter; const currency = document.querySelector("[name='primaryCurrency']:checked")?.value;
-  $("#primaryCurrencyError").hidden = true; setBusy(button, true, "Guardar");
-  try { await updateCountPrimaryCurrency({ countId: state.count.id, currency, actor: state.user }); dialogs.primaryCurrencyModal.close(); showToast("✓ Moneda principal actualizada"); }
-  catch (exception) { error($("#primaryCurrencyError"), exception, "No pudimos cambiar la moneda principal."); }
-  finally { setBusy(button, false, "Guardar"); }
 });
 on(dialogs.countModal, "cancel", (event) => { event.preventDefault(); cancelCountWizard(); });
 on($("#categoryForm"), "submit", async (event) => {

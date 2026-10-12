@@ -353,20 +353,6 @@ export async function clearCurrentDraft(user, { includeRecent = false } = {}) {
   return true;
 }
 
-export async function updateCountPrimaryCurrency({ countId, currency, actor }) {
-  validCurrency(currency);
-  const countRef = doc(db, "counts", countId);
-  const [count, expenses, settlements] = await Promise.all([
-    getDoc(countRef), getDocs(query(collection(db, "counts", countId, "expenses"), limit(1))), getDocs(query(collection(db, "counts", countId, "settlements"), limit(1))),
-  ]);
-  if (!count.exists() || count.data().status !== "active") throw new Error("Este Count no está disponible.");
-  if (expenses.size || settlements.size || count.data().hasMovements) throw new Error("La moneda principal no se puede cambiar después del primer movimiento.");
-  const batch = writeBatch(db);
-  batch.update(countRef, { primaryCurrency: currency, defaultCurrency: currency, updatedAt: serverTimestamp(), updatedBy: actor.uid });
-  audit(batch, { entityType: "count", entityId: countId, countId, action: "updatePrimaryCurrency", actor, before: { primaryCurrency: count.data().primaryCurrency || count.data().defaultCurrency || null }, after: { primaryCurrency: currency } });
-  await batch.commit();
-}
-
 export const watchCount = (countId, onChange, onError) => onSnapshot(doc(db, "counts", countId), { includeMetadataChanges: true }, (snap) => onChange(snap.exists() ? toItem(snap) : null, { fromCache: snap.metadata.fromCache }), onError);
 // También observamos los inactivos para poder resolver sus alias en históricos.
 // La UI filtra los activos para formularios y gestión cotidiana.

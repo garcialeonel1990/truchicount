@@ -190,6 +190,12 @@ test("reglas: rechaza gastos con monto inválido o autor falsificado", async () 
   await assertFails(setDoc(doc(client("owner"), "counts", COUNT_ID, "expenses", "invalidAuthor"), expense({ createdBy: "guest" })));
 });
 
+test("reglas: la moneda principal queda fija al activar el Count", async () => {
+  await assertFails(updateDoc(doc(client("owner"), "counts", COUNT_ID), {
+    primaryCurrency: "USD", defaultCurrency: "USD", updatedBy: "owner",
+  }));
+});
+
 test("joinInvite: incrementa el uso sólo al incorporar", async () => {
   await addUser("guest"); await join("guest"); await join("guest");
   assert.equal((await getDoc(inviteRef(client("guest")))).data().usageCount, 1);

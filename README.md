@@ -109,6 +109,6 @@ Para registrar marcas locales de apertura, abrí la app con `?startupDebug=1`. L
 2. Creá un Count con el wizard: agregá manuales opcionales, elegí la moneda y confirmá.
 3. Copiá el link durante el draft: debe informar que el Count todavía se está configurando. Después de activarlo, el mismo link debe funcionar.
 4. Cargá un gasto y verificá que el split suma exactamente el total y usa la moneda principal por defecto.
-5. Verificá que la moneda principal ya no se pueda cambiar tras el primer gasto o liquidación.
+5. Verificá que la moneda principal quede fija desde la activación del Count.
 6. Editá el gasto y luego eliminálo: debe desaparecer de la vista, no de Firestore.
 7. Registrá una liquidación desde Balances y verificá que los saldos se recalculen por moneda.

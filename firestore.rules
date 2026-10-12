@@ -186,12 +186,6 @@ service cloud.firestore {
           && ((resource.data.status == "active" && request.resource.data.status == "archived")
             || (resource.data.status == "archived" && request.resource.data.status == "active")))
         || (isActiveCountMember(countId)
-          && resource.data.status == "active"
-          && (!(resource.data.keys().hasAll(["hasMovements"])) || resource.data.hasMovements == false)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "primaryCurrency", "defaultCurrency", "updatedAt", "updatedBy"
-          ]))
-        || (isActiveCountMember(countId)
           && request.resource.data.status == "active"
           && request.resource.data.hasMovements == true
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
