@@ -17,13 +17,16 @@ let emojiPickerPromise = null;
 let maintenanceGeneration = -1;
 
 function on(el, event, fn) { el && el.addEventListener(event, fn); }
-function stop(group) { unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = []; }
+function stop(group) {
+  unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = [];
+}
 function watch(group, fn) { unsubscribers[group].push(fn); }
 function esc(value) { return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function dateFrom(value) { return value && value.toDate ? value.toDate() : value ? new Date(value) : null; }
-function dateISO(value) { const date = dateFrom(value); return date ? date.toISOString().slice(0, 10) : ""; }
+function localDateISO(value = new Date()) { const date = dateFrom(value); return date ? [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-") : ""; }
+function dateISO(value) { return localDateISO(value); }
 function prettyDate(value) { const date = dateFrom(value); return date ? new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short", year: "numeric" }).format(date) : "Sin fecha"; }
-function memberName(member) { const profile = state.memberProfiles[member?.userId]; return member?.type === "manual" ? member.alias : profile?.alias || profile?.googleDisplayName || profile?.displayName || member?.aliasSnapshot || "Integrante"; }
+function memberName(member) { const profile = state.memberProfiles[member?.userId]; return member?.type === "manual" ? member.alias : member?.aliasSnapshot || profile?.alias || profile?.googleDisplayName || profile?.displayName || "Integrante"; }
 function nameOf(memberId) { return memberName(state.members.find((member) => member.id === memberId)); }
 function activeMembers() { return state.members.filter((member) => member.active); }
 function activeExpenses() { return state.expenses.filter((expense) => expense.status === "active"); }
@@ -296,33 +299,19 @@ function openCount(id) {
   state.count = state.counts.find((count) => count.id === id) || { id: id, name: "Cargando…" };
   state.members = []; state.expenses = []; state.settlements = [];
   state.detailLoading = { count: false, members: false, expenses: false, settlements: false, failed: false };
-  watch("detail", watchCount(id, (count) => { if (!currentSession()) return; state.count = count; state.detailLoading.count = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
-  watch("detail", watchMembers(id, (members) => {
+  watch("detail", watchCount(id, (count, metadata) => { if (!currentSession()) return; state.count = count; if (!metadata.fromCache) state.detailLoading.count = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
+  watch("detail", watchMembers(id, (members, metadata) => {
     if (!currentSession()) return;
     state.members = members;
-    state.detailLoading.members = true;
-    refreshMemberProfiles();
+    if (!metadata.fromCache) state.detailLoading.members = true;
     renderDetail();
     // The member manager may remain open underneath the manual-member form.
     // Keep it synchronized with the same live data as the Count detail.
     if (dialogs.memberModal.open) renderMemberList();
   }, (exception) => { if (currentSession()) detailError(exception); }));
-  watch("detail", watchExpenses(id, (items) => { if (!currentSession()) return; state.expenses = items; state.detailLoading.expenses = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
-  watch("detail", watchSettlements(id, (items) => { if (!currentSession()) return; state.settlements = items; state.detailLoading.settlements = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
+  watch("detail", watchExpenses(id, (items, metadata) => { if (!currentSession()) return; state.expenses = items; if (!metadata.fromCache) state.detailLoading.expenses = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
+  watch("detail", watchSettlements(id, (items, metadata) => { if (!currentSession()) return; state.settlements = items; if (!metadata.fromCache) state.detailLoading.settlements = true; renderDetail(); }, (exception) => { if (currentSession()) detailError(exception); }));
   showScreen("detail");
-}
-function refreshMemberProfiles() {
-  stop("profiles");
-  const profiles = {};
-  const generation = state.generation;
-  state.members.filter((member) => member.type === "registered" && member.userId).forEach((member) => {
-    watch("profiles", watchUser(member.userId, (profile) => {
-      if (state.generation !== generation || !state.user) return;
-      state.memberProfiles[member.userId] = profile || {}; renderDetail();
-    }, (exception) => { if (state.generation === generation && state.user) detailError(exception); }));
-    profiles[member.userId] = state.memberProfiles[member.userId] || {};
-  });
-  state.memberProfiles = profiles;
 }
 function detailError(exception) {
   console.error(exception);
@@ -666,20 +655,23 @@ function openExpenseModal(expense) {
   const enabled = [...new Set([...(state.profile?.enabledCurrencies || [DEFAULT_CURRENCY]), primaryCurrency])];
   putOptions($("#expenseCurrency"), enabled.map((code) => ({ id: code, name: code })), expense?.currency || primaryCurrency);
   const categories = activeCategories();
+  if (expense && !categories.some((item) => item.id === expense.categoryId)) categories.push({ id: expense.categoryId, name: expense.categoryNameSnapshot || "Categoría histórica", emoji: "🧾" });
   putOptions($("#expenseCategory"), categories.map((item) => ({ id: item.id, name: categoryEmoji(item) + " " + item.name })), expense?.categoryId || categories[0].id);
-  const members = activeMembers();
+  const historicalIds = new Set(expense ? [expense.payerMemberId, ...(expense.participantMemberIds || [])] : []);
+  const members = state.members.filter((member) => member.active || historicalIds.has(member.id));
   const myMemberId = members.find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
   putOptions($("#expensePayer"), members.map((item) => ({ id: item.id, name: memberName(item) })), expense?.payerMemberId || myMemberId);
   const checks = $("#participantChecks"); checks.replaceChildren();
   members.forEach((member) => {
     const selected = expense ? expense.participantMemberIds.includes(member.id) : true;
     const row = document.createElement("label"); row.className = "participant-row";
-    row.innerHTML = '<input type="checkbox" name="participant" value="' + member.id + '" ' + (selected ? "checked" : "") + '/><span>' + esc(memberName(member)) + '</span><span class="checkmark">✓</span>';
+    const historical = expense && !member.active;
+    row.innerHTML = '<input type="checkbox" name="participant" value="' + member.id + '" ' + (selected ? "checked" : "") + (historical ? " disabled" : "") + '/><span>' + esc(memberName(member)) + (historical ? " (histórico)" : "") + '</span><span class="checkmark">✓</span>';
     checks.append(row);
   });
   const form = $("#expenseForm");
   form.elements.title.value = expense?.title || ""; form.elements.merchant.value = expense?.merchantNameSnapshot || "";
-  form.elements.amount.value = expense ? formatMoneyPlain(expense.amountMinor) : ""; form.elements.expenseDate.value = expense ? dateISO(expense.expenseDate) : new Date().toISOString().slice(0, 10); form.elements.notes.value = expense?.notes || "";
+  form.elements.amount.value = expense ? formatMoneyPlain(expense.amountMinor) : ""; form.elements.expenseDate.value = expense ? dateISO(expense.expenseDate) : localDateISO(); form.elements.notes.value = expense?.notes || "";
   renderMerchantOptions(); updateSplitPreview(); dialogs.expenseModal.showModal();
 }
 function renderMerchantOptions() { const list = $("#merchantOptions"); if (!list) return; list.replaceChildren(); state.merchants.slice(0, 50).forEach((merchant) => list.append(new Option(merchant.name))); }
@@ -938,7 +930,7 @@ on($("#deleteExpenseButton"), "click", async () => {
   const button = $("#deleteExpenseButton"); setBusy(button, true, "Eliminar"); try { await softDeleteExpense({ countId: state.count.id, expense, actor: state.user }); dialogs.expenseDetailModal.close(); } catch (exception) { alert("No pudimos eliminar el gasto."); console.error(exception); } finally { setBusy(button, false, "Eliminar"); }
 });
 on($("#confirmSettlementButton"), "click", async () => {
-  const button = $("#confirmSettlementButton"); setBusy(button, true, "Marcar como pagado"); try { await createSettlement({ countId: state.count.id, suggestion: state.selectedSettlement, members: state.members, actor: state.user }); dialogs.settlementModal.close(); } catch (exception) { alert("No pudimos registrar el pago."); console.error(exception); } finally { setBusy(button, false, "Marcar como pagado"); }
+  const button = $("#confirmSettlementButton"); setBusy(button, true, "Marcar como pagado"); try { await createSettlement({ countId: state.count.id, suggestion: state.selectedSettlement, actor: state.user }); dialogs.settlementModal.close(); } catch (exception) { alert(exception.message || "No pudimos registrar el pago."); console.error(exception); } finally { setBusy(button, false, "Marcar como pagado"); }
 });
 on($("#manualMemberForm"), "submit", async (event) => {
   event.preventDefault();
