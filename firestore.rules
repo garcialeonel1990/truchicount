@@ -22,6 +22,13 @@ service cloud.firestore {
       return /databases/$(database)/documents/memberships/$(countId + "_" + uid);
     }
 
+    // A first invitation needs to read its own membership document even when
+    // it does not exist yet. Restrict that read to the canonical id instead
+    // of opening arbitrary membership documents to approved users.
+    function isOwnMembershipPath(membershipId) {
+      return signedIn() && membershipId.matches("^.+_" + request.auth.uid + "$");
+    }
+
     function isCountMember(countId) {
       return isApprovedUser()
         && exists(membershipPath(countId, request.auth.uid))
@@ -282,10 +289,12 @@ service cloud.firestore {
     }
 
     match /memberships/{membershipId} {
-      allow read: if isAdmin() || (isApprovedUser() && (
-        resource.data.uid == request.auth.uid || isCountMember(resource.data.countId)
+      allow get: if isAdmin() || (isApprovedUser() && (
+        isOwnMembershipPath(membershipId) || isCountMember(resource.data.countId)
       ));
+      allow list: if isAdmin() || (isApprovedUser() && isCountMember(resource.data.countId));
       allow create: if isAdmin() || (isApprovedUser()
+        && membershipId == request.resource.data.countId + "_" + request.resource.data.uid
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == "active"
         && existsAfter(/databases/$(database)/documents/counts/$(request.resource.data.countId)/members/$(request.resource.data.memberId))
@@ -298,7 +307,9 @@ service cloud.firestore {
           || hasActiveInvite(request.resource.data.inviteToken, request.resource.data.countId)
         ));
       allow update: if isAdmin()
-        || (isOwner(resource.data.countId)
+        || (membershipId == resource.data.countId + "_" + resource.data.uid
+          && membershipId == request.resource.data.countId + "_" + request.resource.data.uid
+          && ((isOwner(resource.data.countId)
           && isActiveCount(resource.data.countId)
           && resource.data.status == "active"
           && request.resource.data.status == "inactive"
@@ -316,7 +327,7 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.userId == request.auth.uid
           && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.active == true
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]));
+            .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"])));
       allow delete: if isAdmin()
         || (isDraftOwner(resource.data.countId)
           && resource.data.uid == request.auth.uid

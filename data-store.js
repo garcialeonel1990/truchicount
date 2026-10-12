@@ -827,6 +827,11 @@ export async function joinInvite(token, user, { manualMemberId = undefined } = {
     const countId = invite.data().countId;
     const membershipRef = doc(db, "memberships", `${countId}_${user.uid}`);
     const membership = await transaction.get(membershipRef);
+    // The document id is part of the authorization boundary. Never reuse a
+    // malformed historical membership to enter a different Count or account.
+    if (membership.exists() && (membership.data().countId !== countId || membership.data().uid !== user.uid)) {
+      throw new Error("La membresía de esta invitación no es válida. Pedí un link nuevo al Count.");
+    }
     const knownMemberId = membership.exists() && membership.data().memberId;
     const memberRef = doc(db, "counts", countId, "members", knownMemberId || `registered_${user.uid}`);
     const member = await transaction.get(memberRef);
