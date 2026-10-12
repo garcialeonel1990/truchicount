@@ -75,6 +75,19 @@ test("joinInvite: primera invitación aprobada crea la membresía", async () => 
   assert.deepEqual(await join("guest"), { countId: COUNT_ID, alreadyMember: false });
 });
 
+test("reglas: quien acepta una invitación puede listar sus membresías activas", async () => {
+  await addUser("guest");
+  await join("guest");
+  const memberships = await getDocs(query(collection(client("guest"), "memberships"), where("uid", "==", "guest"), where("status", "==", "active")));
+  assert.equal(memberships.docs.length, 1);
+  assert.equal(memberships.docs[0].data().countId, COUNT_ID);
+});
+
+test("reglas: un usuario no puede listar membresías de otra persona", async () => {
+  await addUser("guest");
+  await assertFails(getDocs(query(collection(client("guest"), "memberships"), where("uid", "==", "owner"))));
+});
+
 test("reglas: un usuario recién aprobado puede guardar su nickname sin membresías", async () => {
   await addUser("guest");
   await updateDoc(doc(client("guest"), "users", "guest"), { alias: "Lola" });

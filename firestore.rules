@@ -336,7 +336,10 @@ service cloud.firestore {
       allow get: if isAdmin() || (isApprovedUser() && (
         isOwnMembershipPath(membershipId) || isCountMember(resource.data.countId)
       ));
-      allow list: if isAdmin() || (isApprovedUser() && isCountMember(resource.data.countId));
+      // La Home consulta memberships por uid. Autorizar sólo los documentos
+      // cuyo uid sea el propio evita la condición circular de necesitar ser
+      // miembro para poder descubrir la membresía, sin exponer las ajenas.
+      allow list: if isAdmin() || (isApprovedUser() && resource.data.uid == request.auth.uid);
       allow create: if isAdmin() || (isApprovedUser()
         && membershipId == request.resource.data.countId + "_" + request.resource.data.uid
         && request.resource.data.uid == request.auth.uid
