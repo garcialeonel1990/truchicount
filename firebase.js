@@ -9,7 +9,6 @@ import {
   signOut,
   updateProfile,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDErUOtXuvBuGGhsfPjxPPuC-RYQsbBCO0",
@@ -22,7 +21,6 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 

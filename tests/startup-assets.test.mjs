@@ -9,7 +9,7 @@ test("RF-P05: los recursos públicos se revalidan sin no-store", async () => {
 });
 
 test("RF-P03 y RF-P06: Home no inicia recursos secundarios", async () => {
-  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   const startup = app.slice(app.indexOf("function startAppWatches"), app.indexOf("function ensureCategories"));
   assert.match(startup, /watchCounts/);
   assert.doesNotMatch(startup, /watchCategories|watchMerchants|watchAccessUsers/);

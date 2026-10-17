@@ -12,7 +12,7 @@ test("RF-01: los assets de la aplicación se resuelven desde el origen", async (
 test("RF-P06: el picker de emojis no forma parte del HTML inicial", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.doesNotMatch(html, /emoji-picker-element/);
-  assert.match(await readFile(new URL("../app.js", import.meta.url), "utf8"), /import\("https:\/\/cdn\.jsdelivr\.net\/npm\/emoji-picker-element/);
+  assert.match(await readFile(new URL("../app-main.js", import.meta.url), "utf8"), /import\("https:\/\/cdn\.jsdelivr\.net\/npm\/emoji-picker-element/);
 });
 
 test("RF-UI: los ajustes compactos no pisan el layout de escritorio", async () => {
@@ -31,7 +31,7 @@ test("RF-UI: el sistema visual define todos los tokens teal usados", async () =>
 });
 
 test("RF-Balances: limpia la lista anterior antes de estados loading o error", async () => {
-  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   const render = app.match(/function renderBalances\(\)[\s\S]*?function moneySummary/)?.[0] || "";
   assert.match(render, /const list = \$\("#balanceList"\); list\.replaceChildren\(\)/);
   assert.ok(render.indexOf("list.replaceChildren()") < render.indexOf('presentation.state === "loading"'));
@@ -48,20 +48,20 @@ test("RF-Resumen: cada Count ofrece resumen y exportación CSV", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.match(html, /data-tab="summary"[^>]*>Resumen/);
   assert.match(html, /id="exportSummaryButton"/);
-  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   assert.match(app, /function exportCountCsv\(\)/);
   assert.match(app, /on\(\$\("#exportSummaryButton"\), "click", exportCountCsv\)/);
 });
 
 test("RF-Perfil: el alias propio se muestra antes del nombre histórico del integrante", async () => {
-  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   assert.match(app, /member\?\.userId === state\.user\?\.uid \? state\.profile/);
   assert.match(app, /profile\?\.alias \|\| member\?\.aliasSnapshot/);
 });
 
 test("RF-Perfil: quien entra elige su nickname antes de aceptar una invitación", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
-  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   assert.match(html, /id="nicknameModal"/);
   assert.match(html, /id="nicknameForm"/);
   assert.match(app, /if \(!String\(profile\.alias \|\| ""\)\.trim\(\)\)/);
@@ -70,7 +70,7 @@ test("RF-Perfil: quien entra elige su nickname antes de aceptar una invitación"
 });
 
 test("RF-Admin: puede eliminar un acceso sin historial para reiniciar su solicitud", async () => {
-  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   const store = await readFile(new URL("../data-store.js", import.meta.url), "utf8");
   assert.match(app, /textContent = "Eliminar usuario"/);
   assert.match(store, /export async function deleteUserAccess/);

@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getFirestore,
   limit,
   onSnapshot,
   query,
@@ -14,13 +15,14 @@ import {
   where,
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
-import { app, db } from "./firebase.js";
+import { app } from "./firebase.js";
 import { calculateNetBalances } from "./balances.js";
 import { hasZeroBalance, pendingBalanceCurrencies } from "./integrity.js";
 import { recordSettlement } from "./settlement-client.js";
 import { joinInviteInTransaction } from "./invite-join.js";
 import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
 
+const db = getFirestore(app);
 const toItem = (snapshot) => ({ id: snapshot.id, ...snapshot.data() });
 const auditRef = () => doc(collection(db, "auditLogs"));
 export const ADMIN_UID = "8qvbKFXafDXWWGDPo2OFDul6uss1";

@@ -73,7 +73,7 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 }
 
 .startup-screen { background: var(--color-primary-soft); }
-.startup-message { margin: 18px 0 0; color: var(--gray-600); font-weight: 700; }
+.startup-message { margin: 0; color: var(--gray-300); font-weight: 700; }
 .home-loading { min-height: 180px; gap: 10px; }
 
 .login-card {

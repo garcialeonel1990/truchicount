@@ -7,11 +7,12 @@
     <meta name="description" content="Dividí gastos con amigos, familia o compañeros y mantené las cuentas claras con TruchiCount." />
     <title>TruchiCount</title>
     <link rel="preconnect" href="https://truchicount.firebaseapp.com" crossorigin />
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
     <link rel="stylesheet" href="/styles.css?v=summary-v1" />
   </head>
   <body>
     <section class="login-screen startup-screen" id="startupScreen" role="main" aria-live="polite" aria-busy="true">
-      <div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><p class="startup-message" id="startupMessage">Preparando TruchiCount…</p></div>
+      <div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><h1>Dividí gastos.<br />Sin cuentas raras.</h1><p class="startup-message" id="startupMessage">Preparando TruchiCount…</p><button class="secondary-button" id="startupRetryButton" type="button" hidden>Reintentar</button></div>
     </section>
     <section class="login-screen" id="loginScreen" role="main" hidden>
       <div class="login-card">
@@ -76,6 +77,6 @@
     <dialog class="modal" id="accountModal"><form class="modal-card" id="accountForm"><button class="close-button" type="button" data-close="accountModal">×</button><h2>Mi perfil</h2><p class="section-copy" id="accountEmail"></p><label>Alias<input id="accountName" name="displayName" required maxlength="80" /></label><p class="form-error" id="accountError" hidden></p><button class="primary-button" type="submit">Guardar</button><button class="logout-text-button" id="logoutButton" type="button">Cerrar sesión</button></form></dialog>
     <dialog class="modal" id="nicknameModal"><form class="modal-card" id="nicknameForm"><p class="eyebrow">Tu perfil</p><h2>¿Cómo querés aparecer?</h2><p class="section-copy">Elegí el nombre que verán las personas de tus Counts.</p><label>Nickname<input id="nicknameInput" name="alias" required maxlength="80" placeholder="Ej. Leo" autocomplete="nickname" /></label><p class="form-error" id="nicknameError" hidden></p><button class="primary-button" type="submit">Continuar</button><button class="logout-text-button" id="nicknameLogoutButton" type="button">Cerrar sesión</button></form></dialog>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <script src="/app.js?v=nickname-v1" type="module"></script>
+    <script src="/app.js?v=mobile-startup-v1" type="module"></script>
   </body>
 </html>
