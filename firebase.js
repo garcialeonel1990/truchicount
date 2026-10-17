@@ -1,4 +1,5 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+// Keep browser SDK imports on 12.8.0: newer Auth releases can lose redirect state in iOS webviews (firebase-js-sdk#10428).
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
 import {
   GoogleAuthProvider,
   getAuth,
@@ -8,7 +9,7 @@ import {
   signInWithRedirect,
   signOut,
   updateProfile,
-} from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
+} from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDErUOtXuvBuGGhsfPjxPPuC-RYQsbBCO0",

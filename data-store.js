@@ -14,7 +14,7 @@ import {
   updateDoc,
   where,
   writeBatch,
-} from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 import { app } from "./firebase.js";
 import { calculateNetBalances } from "./balances.js";
 import { hasZeroBalance, pendingBalanceCurrencies } from "./integrity.js";
@@ -543,7 +543,7 @@ export async function softDeleteExpense({ countId, expense, actor }) {
 
 export async function createSettlement({ countId, suggestion, actor }) {
   if (!CURRENCIES[suggestion?.currency] || suggestion.fromMemberId === suggestion.toMemberId) throw new Error("No se pudo registrar esta liquidación.");
-  const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-functions.js");
+  const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/12.8.0/firebase-functions.js");
   const invoke = httpsCallable(getFunctions(app, "us-central1"), "createSettlementV2");
   return recordSettlement({ countId, suggestion, uid: actor.uid, storage: localStorage, randomUUID: () => crypto.randomUUID(), invoke });
 }
