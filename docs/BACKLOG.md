@@ -2,7 +2,7 @@
 
 | ID | Pri. | Tarea | Estado | Criterio de salida |
 |---|---:|---|---|---|
-| SEC-01 | P0 | Comandos privilegiados para ledger y membresía | En progreso | `createSettlementV2` implementada localmente; falta rollout cliente/Rules |
+| SEC-01 | P0 | Comandos privilegiados para ledger y membresía | En progreso | Liquidación desplegada con cliente y Rules; falta prueba real y migrar otras mutaciones |
 | SEC-02 | P0 | Tests Rules adversariales | Pendiente | Casos de corrupción fallan en Emulator |
 | REL-01 | P0 | Gate unit + Emulator y deploy manual | Hecho | `test:all` bloquea deploy; environment production |
 | REL-02 | P0 | Excluir artefactos internos de Hosting | Hecho | Logs/docs/manifests fuera del manifest |

@@ -23,7 +23,7 @@ Mitigación requerida: comandos privilegiados con Admin SDK y transacciones para
 
 ## Correcciones de este ciclo
 
-- `createSettlementV2` está desplegada. El cliente y Rules nuevos están preparados localmente y probados con emuladores; aún no reemplazan el flujo productivo. Publicar Hosting, verificar con usuarios autenticados y actualizar clientes antes de desplegar Rules.
+- `createSettlementV2`, el cliente y las Rules nuevas están desplegados. El flujo autenticado y el bloqueo de escrituras directas se probaron en emuladores; falta verificar una liquidación real en producción. Las pestañas con versiones anteriores deben recargarse.
 - CI ejecuta unitarios y Rules antes de aceptar cambios.
 - El deploy de Hosting dejó de ejecutarse automáticamente en cada push a `main`; ahora es manual, depende de la suite completa y usa el environment `production`.
 - Hosting excluye documentación interna, manifests npm y logs `*-debug.log`.

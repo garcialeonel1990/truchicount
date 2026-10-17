@@ -29,7 +29,7 @@
 | Split custom | Faltante |
 | Moneda por Count | Implementada |
 | Varias monedas dentro de un Count | No soportado |
-| Settlements | Implementados en UI, pero la transacción Web requiere reparación y autorización servidor |
+| Settlements | Cliente, función y Rules desplegados; falta prueba autenticada real |
 | Archivo/restauración | Implementado en UI, pero la transacción Web requiere reparación y autorización servidor |
 | CSV | Implementado |
 | Excel, método de pago, varios pagadores | Faltante/planificado |
