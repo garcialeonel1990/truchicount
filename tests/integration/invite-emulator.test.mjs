@@ -225,6 +225,17 @@ test("reglas: rechaza gastos con monto inválido o autor falsificado", async () 
   await assertFails(setDoc(doc(client("owner"), "counts", COUNT_ID, "expenses", "otherCurrency"), expense({ currency: "USD" })));
 });
 
+test("reglas: ni miembros ni administradores escriben liquidaciones directamente", async () => {
+  const settlement = { countId: COUNT_ID, fromMemberId: "registered_owner", toMemberId: "other", amountMinor: 1000, currency: "ARS", status: "active", createdBy: "owner", updatedBy: "owner" };
+  const ref = (db) => doc(db, "counts", COUNT_ID, "settlements", "payment");
+  await assertFails(setDoc(ref(client("owner")), settlement));
+  await assertFails(setDoc(ref(client(ADMIN_UID)), settlement));
+  await env.withSecurityRulesDisabled(async (context) => setDoc(ref(context.firestore()), settlement));
+  assert.equal((await getDoc(ref(client("owner")))).exists(), true);
+  await assertFails(updateDoc(ref(client("owner")), { amountMinor: 500 }));
+  await assertFails(deleteDoc(ref(client(ADMIN_UID))));
+});
+
 test("reglas: la moneda principal queda fija al activar el Count", async () => {
   await assertFails(updateDoc(doc(client("owner"), "counts", COUNT_ID), {
     primaryCurrency: "USD", defaultCurrency: "USD", updatedBy: "owner",

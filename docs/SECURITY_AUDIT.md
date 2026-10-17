@@ -13,7 +13,7 @@ Mitigación requerida: comandos privilegiados con Admin SDK y transacciones para
 
 ## Riesgos P1/P2
 
-- `createSettlement`, baja de miembros y archivo intentan `transaction.get` sobre queries/colecciones, API no soportada por el SDK Web; esos flujos no tienen test funcional y deben considerarse defectuosos.
+- La baja de miembros y el archivo intentan `transaction.get` sobre queries/colecciones, API no soportada por el SDK Web; esos flujos no tienen test funcional y deben considerarse defectuosos.
 - Categorías y comercios globales son modificables por cualquier usuario aprobado con contratos débiles.
 - `auditLogs` escrito desde clientes no es evidencia de seguridad confiable.
 - Invitaciones no tienen expiración, revocación operativa ni máximo de usos.
@@ -23,7 +23,7 @@ Mitigación requerida: comandos privilegiados con Admin SDK y transacciones para
 
 ## Correcciones de este ciclo
 
-- Se agregó `createSettlementV2`: comando servidor idempotente que revalida identidad, membresía, estructura del ledger y sugerencia actual dentro de una transacción Admin SDK. Todavía no reemplaza el flujo productivo.
+- `createSettlementV2` está desplegada. El cliente y Rules nuevos están preparados localmente y probados con emuladores; aún no reemplazan el flujo productivo. Publicar Hosting, verificar con usuarios autenticados y actualizar clientes antes de desplegar Rules.
 - CI ejecuta unitarios y Rules antes de aceptar cambios.
 - El deploy de Hosting dejó de ejecutarse automáticamente en cada push a `main`; ahora es manual, depende de la suite completa y usa el environment `production`.
 - Hosting excluye documentación interna, manifests npm y logs `*-debug.log`.

@@ -4,17 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b1f33" />
+    <meta name="description" content="Dividí gastos con amigos, familia o compañeros y mantené las cuentas claras con TruchiCount." />
     <title>TruchiCount</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="preconnect" href="https://truchicount.firebaseapp.com" crossorigin />
     <link rel="stylesheet" href="/styles.css?v=summary-v1" />
   </head>
   <body>
-    <section class="login-screen startup-screen" id="startupScreen" aria-live="polite" aria-busy="true">
+    <section class="login-screen startup-screen" id="startupScreen" role="main" aria-live="polite" aria-busy="true">
       <div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><p class="startup-message" id="startupMessage">Preparando TruchiCount…</p></div>
     </section>
-    <section class="login-screen" id="loginScreen" hidden>
+    <section class="login-screen" id="loginScreen" role="main" hidden>
       <div class="login-card">
         <p class="login-kicker">Truchi<span>Count</span></p>
         <h1>Dividí gastos.<br />Sin cuentas raras.</h1>
@@ -23,8 +22,8 @@
         <p class="form-error" id="authError" hidden></p>
       </div>
     </section>
-    <section class="login-screen" id="pendingAccessScreen" hidden><div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><h1>Acceso pendiente</h1><p>Tu cuenta todavía no está autorizada para usar TruchiCount. El administrador tiene que aprobar tu acceso.</p><button class="secondary-button" id="retryAccessButton" type="button">Reintentar</button><button class="primary-button" id="pendingLogoutButton" type="button">Cerrar sesión</button></div></section>
-    <section class="login-screen" id="blockedAccessScreen" hidden><div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><h1>Acceso bloqueado</h1><p>Esta cuenta no está autorizada para usar TruchiCount.</p><button class="primary-button" id="blockedLogoutButton" type="button">Cerrar sesión</button></div></section>
+    <section class="login-screen" id="pendingAccessScreen" role="main" hidden><div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><h1>Acceso pendiente</h1><p>Tu cuenta todavía no está autorizada para usar TruchiCount. El administrador tiene que aprobar tu acceso.</p><button class="secondary-button" id="retryAccessButton" type="button">Reintentar</button><button class="primary-button" id="pendingLogoutButton" type="button">Cerrar sesión</button></div></section>
+    <section class="login-screen" id="blockedAccessScreen" role="main" hidden><div class="login-card"><p class="login-kicker">Truchi<span>Count</span></p><h1>Acceso bloqueado</h1><p>Esta cuenta no está autorizada para usar TruchiCount.</p><button class="primary-button" id="blockedLogoutButton" type="button">Cerrar sesión</button></div></section>
 
     <main class="app-shell" id="appShell" hidden>
       <header class="app-header">

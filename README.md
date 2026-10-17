@@ -61,12 +61,17 @@ El administrador se identifica por su UID de Firebase Authentication, definido e
    `test:all` ejecuta las pruebas puras y las pruebas de permisos contra el
    Firestore Emulator. El Emulator requiere Java JDK 11 o superior y descarga
    sus binarios localmente la primera vez.
-4. Publicá reglas, índices y Hosting sólo a través del comando que exige una
-   suite exitosa antes de desplegar:
+4. Para migrar liquidaciones, desplegá primero la función y luego el cliente
+   mediante Hosting. Verificá el flujo autenticado en producción y la actualización
+   de clientes antes de cerrar las escrituras directas con las nuevas Rules.
+   Los pasos de Hosting y Rules son independientes y ejecutan la suite completa:
 
-    npm run deploy:checked
+    npm run deploy:hosting:checked
+    npm run deploy:rules:checked
 
-Las reglas son parte de la implementación: sin desplegarlas, las operaciones de Counts y gastos no tendrán el modelo de permisos de V1.
+No publiques las Rules nuevas antes del cliente: los clientes anteriores no
+podrían registrar liquidaciones. Los índices y Functions se despliegan por
+separado cuando corresponda.
 
 Hosting excluye reglas, índices, pruebas y archivos de desarrollo; sólo se
 publican los recursos de la aplicación.
@@ -85,18 +90,16 @@ Las pruebas puras se ejecutan con Node 22 o superior:
 
     npm test
 
-Las pruebas del Emulator incluyen 30 casos de invitaciones y permisos y 7 del
-backend de liquidaciones:
+Las pruebas del Emulator cubren invitaciones, permisos y el backend de
+liquidaciones, incluida una llamada autenticada:
 
     npm run test:emulator
 
-Las mutaciones críticas del cliente se revalidan dentro de transacciones: una
-liquidación debe coincidir con la sugerencia del ledger actual y el archivado o
-la baja de un integrante se decide sobre el mismo snapshot. Las Rules validan
-autoría, moneda, montos y estructura. Firestore Rules no puede sumar un mapa
-de repartos ni inspeccionar todos sus participantes; antes de habilitar
-escrituras desde clientes no confiables hace falta mover esas mutaciones a una
-función privilegiada y probarla en Emulator.
+La función de liquidación recalcula la sugerencia dentro de una transacción en
+el servidor. El archivado y la baja de integrantes aún requieren migración:
+las lecturas de colecciones dentro de transacciones del SDK Web no están
+soportadas. Firestore Rules no puede validar la suma de los repartos; los gastos
+también necesitan una futura migración al servidor.
 
 Los balances se calculan siempre sobre el historial completo. No se debe
 paginar gastos o liquidaciones en esta vista hasta contar con un resumen de

@@ -977,7 +977,13 @@ on($("#deleteExpenseButton"), "click", async () => {
   const button = $("#deleteExpenseButton"); setBusy(button, true, "Eliminar"); try { await softDeleteExpense({ countId: state.count.id, expense, actor: state.user }); dialogs.expenseDetailModal.close(); } catch (exception) { alert("No pudimos eliminar el gasto."); console.error(exception); } finally { setBusy(button, false, "Eliminar"); }
 });
 on($("#confirmSettlementButton"), "click", async () => {
-  const button = $("#confirmSettlementButton"); setBusy(button, true, "Marcar como pagado"); try { await createSettlement({ countId: state.count.id, suggestion: state.selectedSettlement, actor: state.user }); dialogs.settlementModal.close(); } catch (exception) { alert(exception.message || "No pudimos registrar el pago."); console.error(exception); } finally { setBusy(button, false, "Marcar como pagado"); }
+  const button = $("#confirmSettlementButton"); const label = button.textContent; setBusy(button, true, label);
+  try {
+    const result = await createSettlement({ countId: state.count.id, suggestion: state.selectedSettlement, actor: state.user });
+    dialogs.settlementModal.close();
+    showToast(result?.alreadyApplied ? "Este pago ya se había registrado. Revisá los balances." : "Pago registrado.");
+  } catch (exception) { alert(exception.message || "No pudimos registrar el pago."); console.error(exception); }
+  finally { setBusy(button, false, label); }
 });
 on($("#manualMemberForm"), "submit", async (event) => {
   event.preventDefault();

@@ -14,9 +14,10 @@ import {
   where,
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
-import { db } from "./firebase.js";
+import { app, db } from "./firebase.js";
 import { calculateNetBalances } from "./balances.js";
-import { hasMinimumActiveMembers, hasZeroBalance, isCurrentSettlementSuggestion, pendingBalanceCurrencies } from "./integrity.js";
+import { hasMinimumActiveMembers, hasZeroBalance, pendingBalanceCurrencies } from "./integrity.js";
+import { recordSettlement } from "./settlement-client.js";
 import { joinInviteInTransaction } from "./invite-join.js";
 import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
 
@@ -541,27 +542,9 @@ export async function softDeleteExpense({ countId, expense, actor }) {
 
 export async function createSettlement({ countId, suggestion, actor }) {
   if (!CURRENCIES[suggestion?.currency] || suggestion.fromMemberId === suggestion.toMemberId) throw new Error("No se pudo registrar esta liquidación.");
-  const countRef = doc(db, "counts", countId);
-  const settlementsRef = collection(db, "counts", countId, "settlements");
-  const ref = doc(settlementsRef);
-  return runTransaction(db, async (transaction) => {
-    const [countSnapshot, membershipSnapshot, membersSnapshot, expensesSnapshot, settlementsSnapshot] = await Promise.all([
-      transaction.get(countRef),
-      transaction.get(doc(db, "memberships", `${countId}_${actor.uid}`)),
-      transaction.get(query(collection(db, "counts", countId, "members"), where("active", "==", true))),
-      transaction.get(collection(db, "counts", countId, "expenses")),
-      transaction.get(settlementsRef),
-    ]);
-    if (!countSnapshot.exists() || countSnapshot.data().status !== "active" || !membershipSnapshot.exists() || membershipSnapshot.data().status !== "active") throw new Error("El Count ya no está disponible para liquidar.");
-    const members = membersSnapshot.docs.map(toItem);
-    const expenses = expensesSnapshot.docs.map(toItem);
-    const settlements = settlementsSnapshot.docs.map(toItem);
-    if (!isCurrentSettlementSuggestion({ members, expenses, settlements, suggestion })) throw new Error("Esta sugerencia ya cambió. Revisá los balances antes de registrar el pago.");
-    const data = { countId, fromMemberId: suggestion.fromMemberId, toMemberId: suggestion.toMemberId, amountMinor: suggestion.amountMinor, currency: suggestion.currency, status: "active", createdAt: serverTimestamp(), createdBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid, reversedAt: null, reversedBy: null, schemaVersion: 1 };
-    transaction.set(ref, data);
-    transaction.update(countRef, { hasMovements: true, updatedAt: serverTimestamp(), updatedBy: actor.uid });
-    audit(transaction, { entityType: "settlement", entityId: ref.id, countId, action: "settle", actor, after: data });
-  });
+  const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-functions.js");
+  const invoke = httpsCallable(getFunctions(app, "us-central1"), "createSettlementV2");
+  return recordSettlement({ countId, suggestion, uid: actor.uid, storage: localStorage, randomUUID: () => crypto.randomUUID(), invoke });
 }
 
 export function normalizeMemberAlias(alias) {

@@ -16,7 +16,7 @@ npm run test:emulator
 npm run test:all
 ```
 
-Baseline actual: 31 pruebas unitarias/estáticas (29 cliente/configuración + 2 ledger servidor) y 37 pruebas Emulator (30 Rules/invitaciones + 6 settlement servidor + 1 smoke callable). El Emulator requiere Java y puertos locales libres.
+El Emulator incluye una llamada autenticada desde el cliente al callable, pruebas del ledger servidor y pruebas de Rules/invitaciones. Requiere Java y puertos locales libres. Las pruebas locales del servidor pueden usar una versión de Node distinta de la configurada para producción; CI usa Node 22.
 
 ## Cobertura prioritaria faltante
 

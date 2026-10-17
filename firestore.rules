@@ -109,14 +109,6 @@ service cloud.firestore {
         && data.participantShares.keys().hasAll(data.participantMemberIds);
     }
 
-    function hasValidSettlementShape(data, countId) {
-      return data.countId == countId
-        && data.amountMinor is int && data.amountMinor > 0
-        && isSupportedCurrency(data.currency)
-        && data.fromMemberId is string && data.toMemberId is string
-        && data.fromMemberId != data.toMemberId;
-    }
-
     match /users/{uid} {
       // Los perfiles contienen email y estado de acceso; un integrante ve su
       // propio perfil, mientras los aliases compartidos viven como snapshots
@@ -217,17 +209,8 @@ service cloud.firestore {
 
       match /settlements/{settlementId} {
         allow read: if isAdmin() || isCountMember(countId);
-        allow create: if isAdmin() || (isActiveCountMember(countId)
-          && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.updatedBy == request.auth.uid
-          && request.resource.data.status == "active"
-          && hasValidSettlementShape(request.resource.data, countId));
-        allow update: if isAdmin() || (isActiveCountMember(countId)
-          && request.resource.data.createdBy == resource.data.createdBy
-          && request.resource.data.updatedBy == request.auth.uid
-          && hasValidSettlementShape(request.resource.data, countId)
-          && request.resource.data.status == resource.data.status);
-        allow delete: if isAdmin();
+        // Sólo el backend privilegiado puede modificar liquidaciones.
+        allow write: if false;
       }
 
       match /members/{memberId} {

@@ -3,7 +3,7 @@
 ## P0 — Integridad y seguridad
 
 - Diseñar e implementar una capa privilegiada transaccional para mutaciones financieras y membresía.
-- Validar `createSettlementV2` en Emulator y completar su rollout Function → cliente → Rules.
+- Completar el rollout de `createSettlementV2`: Function publicada → cliente → Rules, con verificación entre cada etapa.
 - Bloquear escrituras directas sólo después de migrar el cliente.
 - Agregar pruebas Emulator adversariales y estrategia de migración/rollback.
 - Alinear despliegue de Hosting, Rules e índices para evitar drift.
