@@ -30,7 +30,7 @@ export const completeRedirectSignIn = () => getRedirectResult(auth);
 export const signOutUser = () => signOut(auth);
 export const updateDisplayName = (displayName) => updateProfile(auth.currentUser, { displayName });
 
-function shouldUseRedirectSignIn() {
+function isMobileSignInContext() {
   const userAgent = navigator.userAgent || "";
   const isMobileDevice = navigator.userAgentData?.mobile
     || /Android|iPhone|iPad|iPod/i.test(userAgent)
@@ -43,11 +43,13 @@ function shouldUseRedirectSignIn() {
 }
 
 export async function signInWithGoogle() {
-  if (shouldUseRedirectSignIn()) return signInWithRedirect(auth, provider);
+  const isMobile = isMobileSignInContext();
   try {
     return await signInWithPopup(auth, provider);
   } catch (error) {
-    if (error.code === "auth/popup-blocked" || error.code === "auth/cancelled-popup-request") return signInWithRedirect(auth, provider);
+    const canFallbackToRedirect = !isMobile
+      && (error.code === "auth/popup-blocked" || error.code === "auth/cancelled-popup-request");
+    if (canFallbackToRedirect) return signInWithRedirect(auth, provider);
     throw error;
   }
 }

@@ -15,6 +15,14 @@ test("RF-P06: el picker de emojis no forma parte del HTML inicial", async () => 
   assert.match(await readFile(new URL("../app-main.js", import.meta.url), "utf8"), /import\("https:\/\/cdn\.jsdelivr\.net\/npm\/emoji-picker-element/);
 });
 
+test("RF-Auth: el login móvil no fuerza el redirect que genera loops en iOS", async () => {
+  const firebase = await readFile(new URL("../firebase.js", import.meta.url), "utf8");
+  const signIn = firebase.match(/export async function signInWithGoogle\(\)[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(signIn, /return await signInWithPopup\(auth, provider\)/);
+  assert.match(signIn, /const canFallbackToRedirect = !isMobile/);
+  assert.doesNotMatch(signIn, /if \(isMobileSignInContext\(\)\) return signInWithRedirect/);
+});
+
 test("RF-UI: los ajustes compactos no pisan el layout de escritorio", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?\.screen \{/);
