@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasZeroBalance, isCurrentSettlementSuggestion, pendingBalanceCurrencies } from "../integrity.js";
+import { hasMinimumActiveMembers, hasZeroBalance, isCurrentSettlementSuggestion, pendingBalanceCurrencies } from "../integrity.js";
 
 const members = [{ id: "a", active: true }, { id: "b", active: true }];
 const expenses = [{ status: "active", currency: "ARS", amountMinor: 10000, payerMemberId: "a", participantShares: { a: 5000, b: 5000 } }];
@@ -17,4 +17,10 @@ test("los saldos pendientes y cero se detectan por moneda", () => {
   assert.equal(hasZeroBalance(balances, "a"), false);
   assert.equal(hasZeroBalance({ a: { ARS: 0 } }, "a"), true);
   assert.deepEqual(pendingBalanceCurrencies(balances), ["USD"]);
+});
+
+test("un Count necesita al menos dos integrantes activos", () => {
+  assert.equal(hasMinimumActiveMembers([{ id: "owner", active: true }]), false);
+  assert.equal(hasMinimumActiveMembers([{ id: "owner", active: true }, { id: "guest", active: false }]), false);
+  assert.equal(hasMinimumActiveMembers([{ id: "owner", active: true }, { id: "guest", active: true }]), true);
 });

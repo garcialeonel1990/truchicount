@@ -22,7 +22,7 @@ Aplicación web para registrar gastos compartidos. Está hecha con HTML, CSS y J
 - Registro de liquidaciones (settlements).
 - Ajustes de monedas, categorías, perfil y cierre de sesión.
 
-OCR, fotos, reparto manual y exportación no forman parte de esta V1.
+OCR, fotos y reparto manual no forman parte de esta V1. La exportación CSV del resumen sí está disponible; Excel queda planificado.
 
 ## Estructura
 
@@ -32,6 +32,9 @@ OCR, fotos, reparto manual y exportación no forman parte de esta V1.
 - data-store.js: operaciones Firestore y listeners en tiempo real.
 - money.js: parseo, formato y reparto exacto en centavos.
 - balances.js: cálculo puro de balances y simplificación de deudas.
+- integrity.js: invariantes puras para archivo, bajas y liquidaciones.
+- invite-join.js: flujo transaccional de invitaciones.
+- summary.js: resumen por categoría/persona y exportación CSV.
 - firestore.rules: reglas de acceso, administración, drafts, membresías e invitaciones.
 
 ## Acceso y administración
@@ -46,9 +49,10 @@ El administrador se identifica por su UID de Firebase Authentication, definido e
 ## Configurar y desplegar
 
 1. En Firebase Authentication, habilitá el proveedor Google y autorizá el dominio de Hosting.
-2. Instalá dependencias de desarrollo (Node 20 o superior):
+2. Instalá dependencias de desarrollo (Node 22 o superior), incluidas las Functions:
 
     npm install
+    npm --prefix functions install
 
 3. Ejecutá las pruebas antes de cualquier despliegue:
 
@@ -77,11 +81,12 @@ La primera entrega de la reparación cubre correcciones verificables en el clien
 - escape defensivo de categorías existentes y validación de emojis nuevos;
 - bloqueo del listado global de invitaciones en Firestore Rules.
 
-Las pruebas puras se ejecutan con Node 20 o superior:
+Las pruebas puras se ejecutan con Node 22 o superior:
 
     npm test
 
-Las 22 pruebas de invitaciones y permisos requieren el Emulator:
+Las pruebas del Emulator incluyen 30 casos de invitaciones y permisos y 7 del
+backend de liquidaciones:
 
     npm run test:emulator
 

@@ -16,7 +16,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 import { db } from "./firebase.js";
 import { calculateNetBalances } from "./balances.js";
-import { hasZeroBalance, isCurrentSettlementSuggestion, pendingBalanceCurrencies } from "./integrity.js";
+import { hasMinimumActiveMembers, hasZeroBalance, isCurrentSettlementSuggestion, pendingBalanceCurrencies } from "./integrity.js";
 import { joinInviteInTransaction } from "./invite-join.js";
 import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
 
@@ -322,6 +322,7 @@ export async function finalizeCountDraft({ countId, actor }) {
   const members = await getDraftMembers(countId);
   const manualAliases = members.filter((member) => member.type === "manual" && member.active).map((member) => member.normalizedAlias);
   if (manualAliases.some((alias, index) => !alias || manualAliases.indexOf(alias) !== index)) throw new Error("Revisá los aliases de los integrantes.");
+  if (!hasMinimumActiveMembers(members)) throw new Error("Agregá al menos otra persona antes de crear el Count.");
   return runTransaction(db, async (transaction) => {
     const count = await transaction.get(countRef);
     if (!draftOwner(count, actor)) throw new Error("Este borrador ya no está disponible.");
@@ -815,14 +816,14 @@ export async function updateUserSettings(uid, data) {
     if (!normalizedAlias) throw new Error("Ingresá un alias válido.");
     const memberships = await getDocs(query(collection(db, "memberships"), where("uid", "==", uid), where("status", "==", "active")));
     const memberLists = await Promise.all(memberships.docs.map((membership) => getDocs(collection(db, "counts", membership.data().countId, "members"))));
-    const otherRegisteredIds = memberLists.flatMap((snapshot) => snapshot.docs.map(toItem))
-      .filter((member) => member.active && member.type === "registered" && member.userId !== uid)
-      .map((member) => member.userId);
-    const otherProfiles = await Promise.all([...new Set(otherRegisteredIds)].map((userId) => getDoc(doc(db, "users", userId))));
     const conflict = memberLists.some((snapshot) => snapshot.docs.some((member) => {
       const item = member.data();
-      return item.active && item.type === "manual" && (item.normalizedManualAlias || item.normalizedAlias) === normalizedAlias;
-  })) || otherProfiles.some((profile) => profile.exists() && normalizeMemberAlias(profile.data().alias || profile.data().googleDisplayName || profile.data().displayName) === normalizedAlias);
+      if (!item.active || item.userId === uid) return false;
+      const visibleAlias = item.type === "manual"
+        ? item.normalizedManualAlias || item.normalizedAlias
+        : normalizeMemberAlias(item.aliasSnapshot);
+      return visibleAlias === normalizedAlias;
+    }));
     if (conflict) throw new Error("Ya existe un integrante con ese alias en uno de tus Counts activos.");
   }
   return updateDoc(doc(db, "users", uid), { ...data, updatedAt: serverTimestamp() });

@@ -1,4 +1,8 @@
 {
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs22"
+  },
   "hosting": {
     "public": ".",
     "rewrites": [
@@ -15,14 +19,34 @@
       ".git/**",
       ".github/**",
       "tests/**",
-      "package.json",
-      "package-lock.json",
+      "functions/**",
+      "docs/**",
+      "package*.json",
       "firestore.rules",
       "firestore.indexes.json",
+      "*-debug.log",
       "**/.*",
       "**/node_modules/**"
     ],
     "headers": [
+      {
+        "source": "/",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
       {
         "source": "**/*.@(html|js|css)",
         "headers": [
@@ -39,6 +63,9 @@
     "indexes": "firestore.indexes.json"
   },
   "emulators": {
+    "functions": {
+      "port": 5001
+    },
     "firestore": {
       "port": 8080
     },

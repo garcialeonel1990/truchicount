@@ -1,13 +1,16 @@
 :root {
   color-scheme: light;
+  --teal-100: #ccfbf1;
   --teal-200: #99f6e4;
   --teal-500: #14b8a6;
+  --teal-600: #0d9488;
   --teal-700: #0f766e;
   --teal-900: #134e4a;
   --navy-950: #081826;
   --navy-900: #0b1f33;
   --navy-800: #12304a;
   --coral-500: #ff6b6b;
+  --coral-700: #be123c;
   --magenta-500: #d946ef;
   --yellow-400: #facc15;
   --white: #ffffff;
@@ -20,8 +23,8 @@
   --gray-600: #475569;
   --gray-700: #334155;
   --gray-900: #0f172a;
-  --color-primary: var(--teal-500);
-  --color-primary-hover: var(--teal-700);
+  --color-primary: var(--teal-700);
+  --color-primary-hover: var(--teal-900);
   --color-primary-soft: #ccfbf1;
   --color-bg: var(--navy-950);
   --color-surface: var(--white);
@@ -234,7 +237,7 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .secondary-button:hover { background: var(--color-primary-soft); }
 
 .danger-button {
-  background: var(--coral-500);
+  background: var(--coral-700);
   color: var(--white);
 }
 

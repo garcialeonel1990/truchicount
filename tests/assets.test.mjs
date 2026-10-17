@@ -22,6 +22,21 @@ test("RF-UI: los ajustes compactos no pisan el layout de escritorio", async () =
   assert.match(css, /@media \(min-width: 900px\) \{[\s\S]*?\.modal \{ width: min\(calc\(100% - 48px\), 620px\)/);
 });
 
+test("RF-UI: el sistema visual define todos los tokens teal usados", async () => {
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(css, /--teal-100:\s*#[0-9a-f]{6}/i);
+  assert.match(css, /--teal-600:\s*#[0-9a-f]{6}/i);
+  assert.match(css, /--color-primary:\s*var\(--teal-700\)/);
+  assert.match(css, /\.danger-button\s*\{[\s\S]*?background:\s*var\(--coral-700\)/);
+});
+
+test("RF-Balances: limpia la lista anterior antes de estados loading o error", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const render = app.match(/function renderBalances\(\)[\s\S]*?function moneySummary/)?.[0] || "";
+  assert.match(render, /const list = \$\("#balanceList"\); list\.replaceChildren\(\)/);
+  assert.ok(render.indexOf("list.replaceChildren()") < render.indexOf('presentation.state === "loading"'));
+});
+
 test("RF-UI: el pie del asistente de Count no deja la acción siguiente aislada", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(css, /\.wizard-actions \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
@@ -60,4 +75,18 @@ test("RF-Admin: puede eliminar un acceso sin historial para reiniciar su solicit
   assert.match(app, /textContent = "Eliminar usuario"/);
   assert.match(store, /export async function deleteUserAccess/);
   assert.match(store, /No podés eliminar este usuario porque tiene historial/);
+});
+
+test("RF-Perfil: cambiar el alias no intenta leer perfiles privados ajenos", async () => {
+  const store = await readFile(new URL("../data-store.js", import.meta.url), "utf8");
+  const settings = store.match(/export async function updateUserSettings[\s\S]*?export async function saveInitialUserAlias/)?.[0] || "";
+  assert.match(settings, /normalizeMemberAlias\(item\.aliasSnapshot\)/);
+  assert.doesNotMatch(settings, /getDoc\(doc\(db, "users", userId\)\)/);
+});
+
+test("RF-Count: la finalización no usa lecturas de colección incompatibles con Transaction.get", async () => {
+  const store = await readFile(new URL("../data-store.js", import.meta.url), "utf8");
+  const finalize = store.match(/export async function finalizeCountDraft[\s\S]*?export async function clearCurrentDraft/)?.[0] || "";
+  assert.match(finalize, /hasMinimumActiveMembers\(members\)/);
+  assert.doesNotMatch(finalize, /transaction\.get\(membersRef\)/);
 });

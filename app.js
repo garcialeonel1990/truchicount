@@ -367,6 +367,7 @@ function renderExpenses() {
 
 function renderBalances() {
   const actions = $("#balanceActions"); actions.replaceChildren();
+  const list = $("#balanceList"); list.replaceChildren();
   const myMemberId = activeMembers().find((member) => member.type === "registered" && member.userId === state.user?.uid)?.id;
   const ready = ["count", "members", "expenses", "settlements"].every((key) => state.detailLoading[key]);
   const computed = balances();
@@ -396,7 +397,6 @@ function renderBalances() {
       actions.append(card);
     });
   }
-  const list = $("#balanceList"); list.replaceChildren();
   const currencies = balanceCurrencies(computed, state.count?.primaryCurrency || state.count?.defaultCurrency || DEFAULT_CURRENCY);
   activeMembers().forEach((member) => {
     const values = computed[member.id] || {};
