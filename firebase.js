@@ -29,7 +29,20 @@ export const completeRedirectSignIn = () => getRedirectResult(auth);
 export const signOutUser = () => signOut(auth);
 export const updateDisplayName = (displayName) => updateProfile(auth.currentUser, { displayName });
 
+function shouldUseRedirectSignIn() {
+  const userAgent = navigator.userAgent || "";
+  const isMobileDevice = navigator.userAgentData?.mobile
+    || /Android|iPhone|iPad|iPod/i.test(userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isStandalone = navigator.standalone === true
+    || window.matchMedia?.("(display-mode: standalone)").matches;
+  const isCompactTouchDevice = window.matchMedia?.("(pointer: coarse)").matches
+    && window.matchMedia?.("(max-width: 1024px)").matches;
+  return Boolean(isMobileDevice || isStandalone || isCompactTouchDevice);
+}
+
 export async function signInWithGoogle() {
+  if (shouldUseRedirectSignIn()) return signInWithRedirect(auth, provider);
   try {
     return await signInWithPopup(auth, provider);
   } catch (error) {
