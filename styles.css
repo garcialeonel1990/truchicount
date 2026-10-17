@@ -43,11 +43,21 @@
 
 * { box-sizing: border-box; }
 
-html { min-height: 100%; background: var(--color-bg); }
+html {
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+  background: var(--color-bg);
+}
 
 body {
   min-height: 100vh;
   margin: 0;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  overflow-x: hidden;
+  overflow-x: clip;
   background: var(--color-bg);
   color: var(--color-text);
 }
@@ -1102,12 +1112,21 @@ input:disabled {
 /* Compact mobile UI refresh. These refinements must not override the
    deliberate tablet/desktop layout declared above. */
 @media (max-width: 639px) {
+.login-screen {
+  min-height: 100dvh;
+  padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+}
+
+.app-shell { min-height: 100dvh; }
+.app-header {
+  padding-top: calc(10px + env(safe-area-inset-top));
+}
 .screen {
   padding: 20px 16px calc(92px + env(safe-area-inset-bottom));
 }
 
 .app-shell.is-detail-view .app-header { display: none; }
-.app-shell.is-detail-view .screen { min-height: 100vh; }
+.app-shell.is-detail-view .screen { min-height: 100dvh; padding-top: calc(20px + env(safe-area-inset-top)); }
 
 .page-heading { align-items: center; margin-bottom: 16px; }
 .page-heading h1 { font-size: 26px; }
@@ -1206,6 +1225,7 @@ input:disabled {
 .category-row { grid-template-columns: 32px minmax(0, 1fr) auto; }
 
 .modal { width: min(calc(100% - 24px), 500px); max-width: calc(100vw - 24px); }
+.modal, .modal-card { max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
 .modal-card { gap: 13px; padding: 20px 16px 16px; border-radius: 16px; }
 .modal-card h2 { margin-right: 42px; font-size: 20px; }
 .close-button { top: 10px; right: 10px; width: 44px; height: 44px; font-size: 26px; }
@@ -1243,7 +1263,7 @@ input:disabled {
 #unarchiveConfirmModal {
   width: 100%;
   max-width: none;
-  max-height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top));
   margin: auto 0 0;
 }
 
@@ -1252,8 +1272,10 @@ input:disabled {
 #countActionsModal .modal-card,
 #archiveConfirmModal .modal-card,
 #unarchiveConfirmModal .modal-card {
-  max-height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top));
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
   border-radius: 20px 20px 0 0;
 }
 }

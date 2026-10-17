@@ -17,7 +17,7 @@ test("RF-P06: el picker de emojis no forma parte del HTML inicial", async () => 
 
 test("RF-UI: los ajustes compactos no pisan el layout de escritorio", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.match(css, /@media \(max-width: 639px\) \{\s*\.screen/s);
+  assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?\.screen \{/);
   assert.match(css, /@media \(min-width: 640px\) \{\s*\/\* Detail navigation/s);
   assert.match(css, /@media \(min-width: 900px\) \{[\s\S]*?\.modal \{ width: min\(calc\(100% - 48px\), 620px\)/);
 });

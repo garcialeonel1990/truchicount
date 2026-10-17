@@ -3,6 +3,7 @@ import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCa
 import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
 import { expensesCsv, summarizeExpenses } from "./summary.js";
+import { installEdgeBack } from "./edge-back.js";
 
 const $ = (s) => document.querySelector(s);
 const state = { user: null, profile: null, accessStarted: false, screen: "startup", generation: 0, profileCreationStarted: false, homeLoading: { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], categoriesReady: false, merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
@@ -908,6 +909,19 @@ on($("#googleLoginButton"), "click", async () => { $("#authError").hidden = true
 on($("#retryAccessButton"), "click", async () => { if (!state.user) return; try { await ensureUser(state.user); } catch (exception) { console.error(exception); } });
 on($("#pendingLogoutButton"), "click", () => signOutUser()); on($("#blockedLogoutButton"), "click", () => signOutUser());
 on($("#homeButton"), "click", () => showScreen("home")); on($("#backButton"), "click", () => showScreen("home")); on($("#settingsButton"), "click", () => showScreen("settings")); on($("#settingsBackButton"), "click", () => showScreen("home")); on($("#newCountButton"), "click", openCountModal); on($("#addExpenseButton"), "click", () => openExpenseModal()); on($("#shareButton"), "click", openInviteModal); on($("#countActionsButton"), "click", openCountActions); on($("#manageMembersAction"), "click", openMemberModal); on($("#exportSummaryButton"), "click", exportCountCsv);
+installEdgeBack({
+  target: $("#appShell"),
+  canStart: () => window.innerWidth < 640 && !$("#appShell").hidden && ["detail", "settings"].includes(state.screen) && !document.querySelector("dialog[open]") ? state.screen : null,
+  isInteractive: (element) => {
+    if (!(element instanceof Element)) return true;
+    if (element.closest("button, a, input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return true;
+    for (let node = element; node && node !== $("#appShell"); node = node.parentElement) {
+      if (node.scrollWidth > node.clientWidth && /(auto|scroll)/.test(getComputedStyle(node).overflowX)) return true;
+    }
+    return false;
+  },
+  onBack: () => showScreen("home"),
+});
 on($("#countTitle"), "click", () => { if (state.count?.name) showToast(state.count.name); });
 on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
 on($("#draftAddMemberButton"), "click", () => openDraftMemberModal()); on($("#copyDraftInviteButton"), "click", () => copyDraftInvite($("#draftInviteLink"), $("#draftInviteStatus"))); on($("#copyConfirmInviteButton"), "click", () => copyDraftInvite($("#countConfirmInvite")));
