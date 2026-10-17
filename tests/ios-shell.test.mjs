@@ -6,6 +6,8 @@ test("iOS home screen uses the full viewport without disabling zoom", async () =
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.match(html, /name="viewport" content="[^"]*viewport-fit=cover/);
   assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
+  assert.match(html, /name="theme-color" content="#0b1f33"/);
+  assert.match(html, /name="apple-mobile-web-app-status-bar-style" content="black-translucent"/);
   assert.doesNotMatch(html, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1/);
 });
 
