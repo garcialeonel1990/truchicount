@@ -48,6 +48,15 @@
         ]
       },
       {
+        "source": "/j/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
         "source": "**/*.@(html|js|css)",
         "headers": [
           {
