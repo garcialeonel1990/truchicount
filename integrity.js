@@ -1,9 +1,5 @@
 import { calculateNetBalances, simplifyDebts } from "./balances.js";
 
-export function hasMinimumActiveMembers(members, minimum = 2) {
-  return members.filter((member) => member?.active === true).length >= minimum;
-}
-
 export function hasZeroBalance(balances, memberId) {
   return Object.values(balances[memberId] || {}).every((amount) => amount === 0);
 }

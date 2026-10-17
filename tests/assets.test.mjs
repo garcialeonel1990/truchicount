@@ -87,6 +87,7 @@ test("RF-Perfil: cambiar el alias no intenta leer perfiles privados ajenos", asy
 test("RF-Count: la finalización no usa lecturas de colección incompatibles con Transaction.get", async () => {
   const store = await readFile(new URL("../data-store.js", import.meta.url), "utf8");
   const finalize = store.match(/export async function finalizeCountDraft[\s\S]*?export async function clearCurrentDraft/)?.[0] || "";
-  assert.match(finalize, /hasMinimumActiveMembers\(members\)/);
+  assert.match(finalize, /if \(!owner\.exists\(\) \|\| !owner\.data\(\)\.active/);
+  assert.doesNotMatch(finalize, /hasMinimumActiveMembers|Agregá al menos otra persona/);
   assert.doesNotMatch(finalize, /transaction\.get\(membersRef\)/);
 });

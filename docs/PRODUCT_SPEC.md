@@ -11,7 +11,7 @@
 
 ## Reglas obligatorias
 
-- Un Count necesita al menos dos integrantes activos al activarse. El cliente lo controla, pero la garantía autoritativa queda pendiente del backend.
+- Un Count puede tener una sola persona para registrar gastos personales; el creador debe permanecer como integrante activo.
 - La moneda principal es explícita e inmutable luego de la activación.
 - Un gasto usa enteros en unidad mínima, tiene monto positivo, un pagador, al menos un participante y shares cuya suma coincide con el total.
 - El remanente de centavos se asigna de forma determinista: primero al pagador si participa y luego por ID ordenado.

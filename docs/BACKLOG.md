@@ -8,7 +8,7 @@
 | REL-02 | P0 | Excluir artefactos internos de Hosting | Hecho | Logs/docs/manifests fuera del manifest |
 | REL-03 | P0 | Publicar Rules/índices junto al release | Pendiente | Un release no deja drift entre UI y autorización |
 | BUG-01 | P1 | Limpiar balances entre Counts | Implementado; falta E2E | Loading/error nunca conserva saldos previos |
-| BUG-02 | P1 | Mínimo dos integrantes al activar | Parcial | Cliente rechaza un único activo; backend/Rules lo hace obligatorio |
+| BUG-02 | P1 | Permitir Counts personales | Implementado | El creador activo puede registrar gastos sin agregar otra persona |
 | BUG-03 | P1 | Cambio de alias sin lectura prohibida | Parcial | Guardado no lee perfiles ajenos; falta sincronizar snapshot visible |
 | BUG-04 | P1 | Quitar `transaction.get` sobre colecciones | Pendiente | Settlement, baja y archivo ejecutan sin API inválida y conservan atomicidad |
 | UX-01 | P1 | Monedas: definir y aplicar preferencia | Pendiente | Copy, wizard y persistencia coinciden |

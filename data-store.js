@@ -16,7 +16,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 import { app, db } from "./firebase.js";
 import { calculateNetBalances } from "./balances.js";
-import { hasMinimumActiveMembers, hasZeroBalance, pendingBalanceCurrencies } from "./integrity.js";
+import { hasZeroBalance, pendingBalanceCurrencies } from "./integrity.js";
 import { recordSettlement } from "./settlement-client.js";
 import { joinInviteInTransaction } from "./invite-join.js";
 import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
@@ -323,7 +323,6 @@ export async function finalizeCountDraft({ countId, actor }) {
   const members = await getDraftMembers(countId);
   const manualAliases = members.filter((member) => member.type === "manual" && member.active).map((member) => member.normalizedAlias);
   if (manualAliases.some((alias, index) => !alias || manualAliases.indexOf(alias) !== index)) throw new Error("Revisá los aliases de los integrantes.");
-  if (!hasMinimumActiveMembers(members)) throw new Error("Agregá al menos otra persona antes de crear el Count.");
   return runTransaction(db, async (transaction) => {
     const count = await transaction.get(countRef);
     if (!draftOwner(count, actor)) throw new Error("Este borrador ya no está disponible.");
