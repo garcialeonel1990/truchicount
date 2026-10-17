@@ -60,7 +60,7 @@ html {
   overflow-x: hidden;
   overflow-x: clip;
   overscroll-behavior-x: none;
-  background: var(--color-bg);
+  background: var(--navy-900);
 }
 
 body {
@@ -70,7 +70,7 @@ body {
   padding-right: env(safe-area-inset-right);
   overflow-x: hidden;
   overflow-x: clip;
-  background: var(--color-bg);
+  background: var(--navy-900);
   color: var(--color-text);
 }
 
@@ -98,7 +98,7 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   place-items: center;
 }
 
-.startup-screen { background: var(--color-primary-soft); }
+.startup-screen { background: var(--navy-900); }
 .startup-message { margin: 0; color: var(--gray-300); font-weight: 700; }
 .home-loading { min-height: 180px; gap: 10px; }
 

@@ -7,8 +7,20 @@ test("iOS home screen uses the full viewport without disabling zoom", async () =
   assert.match(html, /name="viewport" content="[^"]*viewport-fit=cover/);
   assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
   assert.match(html, /name="theme-color" content="#0b1f33"/);
+  assert.match(html, /name="mobile-web-app-capable" content="yes"/);
   assert.match(html, /name="apple-mobile-web-app-status-bar-style" content="black-translucent"/);
+  assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/);
+  assert.match(html, /<style>html,body\{background:#0b1f33\}<\/style>/);
   assert.doesNotMatch(html, /user-scalable\s*=\s*no|maximum-scale\s*=\s*1/);
+});
+
+test("the install manifest and first paint keep the iOS system area navy", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../manifest.webmanifest", import.meta.url), "utf8"));
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.equal(manifest.display, "standalone");
+  assert.equal(manifest.theme_color, "#0b1f33");
+  assert.equal(manifest.background_color, "#0b1f33");
+  assert.match(css, /\.startup-screen\s*\{\s*background:\s*var\(--navy-900\)/);
 });
 
 test("the page clips horizontal overflow while retaining safe areas and vertical scrolling", async () => {

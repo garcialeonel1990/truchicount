@@ -57,7 +57,7 @@
         ]
       },
       {
-        "source": "**/*.@(html|js|css)",
+        "source": "**/*.@(html|js|css|webmanifest)",
         "headers": [
           {
             "key": "Cache-Control",

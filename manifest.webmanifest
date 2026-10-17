@@ -1,0 +1,10 @@
+{
+  "name": "TruchiCount",
+  "short_name": "TruchiCount",
+  "description": "Dividí gastos compartidos y mantené las cuentas claras.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1f33",
+  "theme_color": "#0b1f33"
+}
