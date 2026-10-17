@@ -9,9 +9,9 @@ La interfaz es mobile-first, usa superficie clara con navegación navy y ya adap
 - Corregido: la lista de balances anterior podía quedar visible mientras el nuevo Count cargaba o fallaba.
 - Corregido: faltaban los tokens `--teal-100` y `--teal-600`; afectaban progreso, radios y badges.
 - Corregido: botones primarios y de peligro ahora usan tonos con mejor contraste para texto blanco.
-- Pendiente: filas de integrantes renderizadas como `article` con click no son alcanzables por teclado.
+- Corregido: las filas interactivas de integrantes se renderizan como botones alcanzables por teclado.
 - Pendiente: tablists necesitan `role="tab"`, `aria-selected`, `aria-controls`, panels asociados y navegación por flechas.
-- Pendiente: botones de cierre `×` necesitan nombre accesible.
+- Corregido: los botones de cierre `×` exponen el nombre accesible `Cerrar`.
 - Pendiente: Ajustes > Monedas persiste una preferencia que no modifica el wizard ni el gasto; hay que definir su semántica o retirarla.
 
 ## Criterios de aceptación

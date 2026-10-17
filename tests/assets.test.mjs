@@ -38,6 +38,18 @@ test("RF-UI: el sistema visual define todos los tokens teal usados", async () =>
   assert.match(css, /\.danger-button\s*\{[\s\S]*?background:\s*var\(--coral-700\)/);
 });
 
+test("RF-UI: el sistema de botones comparte tamaños y targets táctiles", async () => {
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
+  assert.match(css, /--button-height-sm:\s*36px/);
+  assert.match(css, /--button-height-md:\s*44px/);
+  assert.match(css, /--button-height-lg:\s*48px/);
+  assert.match(css, /\.icon-button,[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px/);
+  assert.doesNotMatch(html, /class="close-button"(?![^>]*aria-label="Cerrar")/);
+  assert.match(app, /const row = document\.createElement\("button"\);\s*row\.type = "button";\s*row\.className = "member-row member-row-action"/);
+});
+
 test("RF-Balances: limpia la lista anterior antes de estados loading o error", async () => {
   const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   const render = app.match(/function renderBalances\(\)[\s\S]*?function moneySummary/)?.[0] || "";

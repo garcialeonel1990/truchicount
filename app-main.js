@@ -47,7 +47,19 @@ function isReadOnly() { return state.count?.status === "archived"; }
 function isAdmin() { return state.user?.uid === ADMIN_UID; }
 function canManageMembers() { return activeMembers().some((member) => member.type === "registered" && member.userId === state.user?.uid); }
 function pendingCurrencies(balance = balances()) { return [...new Set(Object.values(balance).flatMap((byCurrency) => Object.entries(byCurrency).filter(([, amount]) => amount !== 0).map(([currency]) => currency)))].sort(); }
-function setBusy(button, busy, label, busyLabel = "Guardando…") { button.disabled = busy; button.textContent = busy ? busyLabel : label; }
+function setBusy(button, busy, label, busyLabel = "Guardando…") {
+  if (!button) return;
+  if (busy) {
+    button.dataset.busyMinWidth = button.style.minWidth;
+    button.style.minWidth = Math.ceil(button.getBoundingClientRect().width) + "px";
+  } else {
+    button.style.minWidth = button.dataset.busyMinWidth || "";
+    delete button.dataset.busyMinWidth;
+  }
+  button.disabled = busy;
+  button.setAttribute("aria-busy", String(busy));
+  button.textContent = busy ? busyLabel : label;
+}
 function error(el, exception, fallback) { console.error(exception); el.textContent = exception?.message || fallback; el.hidden = false; }
 function icon(category) { const name = String(category).toLocaleLowerCase("es"); if (name.includes("super") || name.includes("comida")) return "🛒"; if (name.includes("salida")) return "🍔"; if (name.includes("trans")) return "🚕"; if (name.includes("serv")) return "💡"; if (name.includes("verd")) return "🥬"; if (name.includes("apo") || name.includes("masc")) return "🐶"; return "🧾"; }
 function showToast(message) { const toast = $("#toast"); clearTimeout(state.toastTimer); toast.textContent = message; toast.hidden = false; state.toastTimer = setTimeout(() => { toast.hidden = true; }, 2800); }
@@ -257,7 +269,11 @@ function showScreen(name) {
 function renderHome() {
   if (!state.user) return;
   renderHeader();
-  document.querySelectorAll("[data-count-tab]").forEach((button) => button.classList.toggle("is-selected", button.dataset.countTab === state.homeTab));
+  document.querySelectorAll("[data-count-tab]").forEach((button) => {
+    const selected = button.dataset.countTab === state.homeTab;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
   const list = $("#countList"); list.replaceChildren();
   const counts = state.counts.filter((count) => (count.status || "active") === state.homeTab);
   $("#newCountButton").hidden = state.homeTab === "archived" || !counts.length;
@@ -498,7 +514,11 @@ function renderAdmin() {
   if (!isAdmin()) return;
   const pending = state.accessUsers.filter((user) => user.accessStatus === "pending");
   $("#adminPendingBadge").hidden = pending.length === 0;
-  document.querySelectorAll("[data-admin-tab]").forEach((button) => button.classList.toggle("is-selected", button.dataset.adminTab === state.adminTab));
+  document.querySelectorAll("[data-admin-tab]").forEach((button) => {
+    const selected = button.dataset.adminTab === state.adminTab;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
   const list = $("#adminUserList"); list.replaceChildren();
   const users = state.accessUsers.filter((user) => user.accessStatus === state.adminTab).sort((a, b) => String(a.googleDisplayName || a.email).localeCompare(String(b.googleDisplayName || b.email), "es"));
   if (!users.length) { list.innerHTML = '<div class="empty-category-row">No hay usuarios en esta sección.</div>'; return; }
@@ -804,7 +824,8 @@ function renderMemberList() {
     return;
   }
   members.forEach((member) => {
-    const row = document.createElement("article");
+    const row = document.createElement("button");
+    row.type = "button";
     row.className = "member-row member-row-action";
     const name = memberName(member);
     row.innerHTML = '<span class="member-avatar">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span><strong>' + esc(name) + '</strong><small>' + memberRoleLabel(member) + '</small></span><span class="chevron">›</span>';
@@ -942,7 +963,14 @@ on($("#deleteCategoryModalButton"), "click", async () => {
 });
 on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.googleDisplayName || state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
-document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => { document.querySelectorAll("[data-tab]").forEach((item) => item.classList.toggle("is-selected", item === button)); document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel")); }));
+document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => {
+  document.querySelectorAll("[data-tab]").forEach((item) => {
+    const selected = item === button;
+    item.classList.toggle("is-selected", selected);
+    item.setAttribute("aria-selected", String(selected));
+  });
+  document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel"));
+}));
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
 document.querySelectorAll("[data-admin-tab]").forEach((button) => on(button, "click", () => { state.adminTab = button.dataset.adminTab; renderAdmin(); }));
 on($("#expenseForm"), "input", updateSplitPreview); on($("#expenseForm"), "change", updateSplitPreview);
