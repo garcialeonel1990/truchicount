@@ -258,9 +258,9 @@ function renderHome() {
   if (!state.user) return;
   renderHeader();
   document.querySelectorAll("[data-count-tab]").forEach((button) => button.classList.toggle("is-selected", button.dataset.countTab === state.homeTab));
-  $("#newCountButton").hidden = state.homeTab === "archived";
   const list = $("#countList"); list.replaceChildren();
   const counts = state.counts.filter((count) => (count.status || "active") === state.homeTab);
+  $("#newCountButton").hidden = state.homeTab === "archived" || !counts.length;
   if (state.homeLoading.failed) {
     list.innerHTML = '<section class="empty-state"><strong>No pudimos cargar tus Counts.</strong><span>Revisá tu conexión y recargá para reintentar.</span></section>';
     return;
