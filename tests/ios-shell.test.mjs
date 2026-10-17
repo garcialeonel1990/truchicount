@@ -13,7 +13,9 @@ test("the page clips horizontal overflow while retaining safe areas and vertical
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(css, /html\s*\{[^}]*overflow-x:\s*clip/);
   assert.match(css, /body\s*\{[^}]*overflow-x:\s*clip/);
-  assert.doesNotMatch(css, /(?:html|body)\s*\{[^}]*overflow-y:\s*hidden/);
+  assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?body\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /\.screen\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior-y:\s*none;/);
+  assert.match(css, /\.login-screen\s*\{[^}]*height:\s*100dvh;[^}]*overflow-y:\s*auto;/);
   assert.match(css, /padding-top:\s*calc\(10px \+ env\(safe-area-inset-top\)\)/);
   assert.match(css, /padding-top:\s*calc\(20px \+ env\(safe-area-inset-top\)\)/);
   assert.match(css, /env\(safe-area-inset-bottom\)/);

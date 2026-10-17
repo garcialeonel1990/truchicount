@@ -1224,21 +1224,49 @@ input:disabled {
 /* Compact mobile UI refresh. These refinements must not override the
    deliberate tablet/desktop layout declared above. */
 @media (max-width: 639px) {
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
 .login-screen {
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
   padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
 }
 
-.app-shell { min-height: 100dvh; }
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
 .app-header {
   padding-top: calc(10px + env(safe-area-inset-top));
 }
 .screen {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
   padding: 20px 16px calc(92px + env(safe-area-inset-bottom));
 }
 
+.app-shell.is-detail-view { grid-template-rows: minmax(0, 1fr); }
 .app-shell.is-detail-view .app-header { display: none; }
-.app-shell.is-detail-view .screen { min-height: 100dvh; padding-top: calc(20px + env(safe-area-inset-top)); }
+.app-shell.is-detail-view .screen { min-height: 0; padding-top: calc(20px + env(safe-area-inset-top)); }
 
 .page-heading { align-items: center; margin-bottom: 16px; }
 .page-heading h1 { font-size: 26px; }
