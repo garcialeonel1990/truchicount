@@ -38,6 +38,66 @@ test("RF-UI: el sistema visual define todos los tokens teal usados", async () =>
   assert.match(css, /\.danger-button\s*\{[\s\S]*?background:\s*var\(--coral-700\)/);
 });
 
+test("RF-UI: cerrar un modal no deja una capa de blur sobre la app en iOS", async () => {
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /backdrop-filter\s*:/);
+});
+
+test("RF-UI: el formulario de gasto bloquea el arrastre del shell en móviles", async () => {
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(css, /#expenseModal\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?touch-action:\s*none;/);
+  assert.match(css, /#expenseModal \.modal-card\s*\{[\s\S]*?max-height:\s*100%;/);
+  assert.match(css, /\.modal-card\s*\{[\s\S]*?overscroll-behavior:\s*contain;[\s\S]*?touch-action:\s*pan-y;/);
+});
+
+test("RF-Categorías: las categorías cacheadas permiten abrir el formulario de gasto", async () => {
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
+  const loader = app.match(/function ensureCategories\(\)[\s\S]*?\n\}\nfunction ensureMerchants/)?.[0] || "";
+  assert.match(loader, /if \(items\.length\) \{[\s\S]*?state\.categoriesReady = true;[\s\S]*?resolve\(state\.categories\)/);
+});
+
+test("RF-Admin: el cambio de acceso actualiza la lista sin cerrar sesión", async () => {
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
+  const change = app.match(/async function changeUserAccess\([\s\S]*?\n\}\n\nasync function removeUserAccess/)?.[0] || "";
+  assert.match(change, /state\.accessUsers = state\.accessUsers\.map/);
+  assert.match(change, /renderAdmin\(\)/);
+});
+
+test("RF-UI: el selector de emojis vive dentro del modal y libera el teclado", async () => {
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
+  const picker = app.match(/async function openEmojiPicker\(\)[\s\S]*?\n\}\n\nasync function deleteCategory/)?.[0] || "";
+  assert.match(picker, /document\.activeElement\?\.blur/);
+  assert.match(picker, /dialogs\.categoryModal\.append\(popover\)/);
+  assert.doesNotMatch(picker, /document\.body\.append\(popover\)/);
+});
+
+test("RF-UI: monedas usa un listado y permite agregar una nueva sin checkboxes", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
+  assert.match(html, /id="newCurrencyButton"/);
+  assert.match(html, /id="currencyModal"/);
+  assert.match(app, /Object\.values\(CURRENCIES\)\.filter\(\(currency\) => enabled\.includes\(currency\.code\)\)/);
+  assert.match(app, /updateUserSettings\(state\.user\.uid, \{ enabledCurrencies: next \}\)/);
+  assert.doesNotMatch(app.match(/function renderSettings\(\)[\s\S]*?\n\}\n\nfunction openCurrencyModal/)?.[0] || "", /type="checkbox"/);
+});
+
+test("RF-UI: el encabezado de Ajustes no superpone Volver con el título", async () => {
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.settings-topline \.back-button\s*\{[\s\S]*?width:\s*auto;[\s\S]*?white-space:\s*nowrap;/);
+  assert.match(css, /\.settings-topline\s*\{[\s\S]*?gap:\s*12px;/);
+});
+
+test("RF-UI: Ajustes separa monedas, categorías y administración en paneles", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
+  assert.match(html, /id="settingsHub"/);
+  assert.match(html, /id="currenciesSettingsPanel"/);
+  assert.match(html, /id="categoriesSettingsPanel"/);
+  assert.match(html, /id="adminSettingsPanel"/);
+  assert.match(app, /function showSettingsPanel\(panel\)/);
+  assert.match(app, /data-settings-home/);
+});
+
 test("RF-UI: el sistema de botones comparte tamaños y targets táctiles", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");

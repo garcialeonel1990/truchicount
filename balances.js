@@ -6,8 +6,13 @@ export function calculateNetBalances(members, expenses, settlements) {
 
   expenses.filter((expense) => expense.status === "active").forEach((expense) => {
     const currency = expense.currency;
-    balances[expense.payerMemberId] ??= {};
-    balances[expense.payerMemberId][currency] = (balances[expense.payerMemberId][currency] ?? 0) + expense.amountMinor;
+    const payerShares = expense.payerShares && typeof expense.payerShares === "object"
+      ? expense.payerShares
+      : { [expense.payerMemberId]: expense.amountMinor };
+    Object.entries(payerShares).forEach(([memberId, paid]) => {
+      balances[memberId] ??= {};
+      balances[memberId][currency] = (balances[memberId][currency] ?? 0) + paid;
+    });
     Object.entries(expense.participantShares ?? {}).forEach(([memberId, share]) => {
       balances[memberId] ??= {};
       balances[memberId][currency] = (balances[memberId][currency] ?? 0) - share;

@@ -512,11 +512,18 @@ export async function saveExpense({ countId, form, members, categories, actor, e
   const participantShares = preserveShares ? before.participantShares : divideAmount(amountMinor, participantMemberIds, form.payerMemberId);
   const splitTotal = Object.values(participantShares || {}).reduce((sum, share) => sum + share, 0);
   if (!Object.values(participantShares || {}).every((share) => Number.isSafeInteger(share) && share >= 0) || splitTotal !== amountMinor) throw new Error("El reparto del gasto no coincide con el monto.");
+  const payerShares = form.payerShares && typeof form.payerShares === "object"
+    ? Object.fromEntries(Object.entries(form.payerShares).filter(([memberId]) => participantMemberIds.includes(memberId)))
+    : { [payer.id]: amountMinor };
+  const paidTotal = Object.values(payerShares).reduce((sum, paid) => sum + paid, 0);
+  if (!Object.keys(payerShares).length || !Object.values(payerShares).every((paid) => Number.isSafeInteger(paid) && paid >= 0) || paidTotal !== amountMinor) throw new Error("Los importes pagados deben sumar exactamente el monto del gasto.");
+  const primaryPayerId = Object.entries(payerShares).find(([, paid]) => paid > 0)?.[0] || payer.id;
   const data = {
     countId, title, merchantId: merchant.id, merchantNameSnapshot: merchant.name,
     categoryId: category.id, categoryNameSnapshot: category.name,
     amountMinor, currency: form.currency, expenseDate: Timestamp.fromDate(expenseDate),
-    payerMemberId: payer.id,
+    payerMemberId: primaryPayerId,
+    payerShares,
     participantMemberIds, participantShares, splitType: "equal", paymentMethod: null, notes,
     status: "active", updatedAt: serverTimestamp(), updatedBy: actor.uid, schemaVersion: 1,
   };

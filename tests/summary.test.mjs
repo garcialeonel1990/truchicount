@@ -20,3 +20,11 @@ test("el CSV conserva el detalle de categoría, pagador y reparto", () => {
   assert.match(csv, /"Cena, viernes"/);
   assert.match(csv, /Leo: \$500 · Aldu: \$500/);
 });
+
+test("el resumen distribuye el pago entre varios pagadores", () => {
+  const summary = summarizeExpenses([{ status: "active", currency: "USD", amountMinor: 300000, categoryId: "food", categoryNameSnapshot: "Comida", payerMemberId: "a", payerShares: { a: 150000, b: 150000, c: 0 }, participantShares: { a: 100000, b: 100000, c: 100000 } }]);
+  const people = summary.categories[0].people;
+  assert.deepEqual(people.a.paid, { USD: 150000 });
+  assert.deepEqual(people.b.paid, { USD: 150000 });
+  assert.deepEqual(people.c.paid, { USD: 0 });
+});

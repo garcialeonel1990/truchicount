@@ -27,8 +27,13 @@ export function summarizeExpenses(expenses = []) {
     addAmount(category.totals, currency, amount);
     addAmount(totalByCurrency, currency, amount);
 
-    const payer = category.people[expense.payerMemberId] ||= { paid: {}, share: {} };
-    addAmount(payer.paid, currency, amount);
+    const payerShares = expense.payerShares && typeof expense.payerShares === "object"
+      ? expense.payerShares
+      : { [expense.payerMemberId]: amount };
+    Object.entries(payerShares).forEach(([memberId, paid]) => {
+      const payer = category.people[memberId] ||= { paid: {}, share: {} };
+      addAmount(payer.paid, currency, Number(paid) || 0);
+    });
     Object.entries(expense.participantShares || {}).forEach(([memberId, share]) => {
       const person = category.people[memberId] ||= { paid: {}, share: {} };
       addAmount(person.share, currency, Number(share) || 0);

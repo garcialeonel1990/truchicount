@@ -20,3 +20,13 @@ test("los integrantes sin movimientos conservan la moneda usada por el Count", (
   assert.deepEqual(balanceCurrencies({ gallego: {}, aldu: {}, leo: { UYU: 500 } }, "ARS"), ["UYU"]);
   assert.deepEqual(balanceCurrencies({ gallego: {} }, "USD"), ["USD"]);
 });
+
+test("un gasto con varios pagadores reparte el crédito según lo que pagó cada uno", () => {
+  const members = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  const expenses = [{ status: "active", currency: "USD", amountMinor: 300000, payerMemberId: "a", payerShares: { a: 150000, b: 150000, c: 0 }, participantShares: { a: 100000, b: 100000, c: 100000 } }];
+  assert.deepEqual(calculateNetBalances(members, expenses, []), { a: { USD: 50000 }, b: { USD: 50000 }, c: { USD: -100000 } });
+  assert.deepEqual(simplifyDebts(calculateNetBalances(members, expenses, [])), [
+    { fromMemberId: "c", toMemberId: "a", amountMinor: 50000, currency: "USD" },
+    { fromMemberId: "c", toMemberId: "b", amountMinor: 50000, currency: "USD" },
+  ]);
+});

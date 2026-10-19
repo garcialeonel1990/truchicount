@@ -928,7 +928,6 @@ input:disabled {
 
 .modal::backdrop {
   background: rgba(8, 24, 38, 0.72);
-  backdrop-filter: blur(4px);
 }
 
 .modal-card {
@@ -936,7 +935,10 @@ input:disabled {
   display: grid;
   gap: 15px;
   max-height: calc(100dvh - 20px);
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding: 28px 20px 20px;
   border-radius: var(--radius-lg);
   background: var(--white);
@@ -1054,6 +1056,13 @@ input:disabled {
 .logout-text-button { justify-self: start; padding-left: 0; }
 
 .expense-form { gap: 13px; }
+.form-toggle { display: flex; align-items: center; gap: 9px; color: var(--gray-700); font-size: 14px; font-weight: 700; }
+.form-toggle input { width: 20px; height: 20px; accent-color: var(--teal-600); }
+.payer-allocation-section { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--gray-200); border-radius: var(--radius-md); background: var(--gray-50); }
+.payer-allocation-list { display: grid; gap: 8px; }
+.payer-allocation-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(96px, 120px); align-items: center; gap: 10px; }
+.payer-allocation-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.payer-allocation-row input { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--gray-300); border-radius: 9px; background: var(--white); text-align: right; }
 
 .emoji-trigger {
   display: flex;
@@ -1352,11 +1361,36 @@ body {
 .balance-card small { margin-top: 1px; }
 .balance-amount { font-size: 13px; }
 
-.settings-topline { display: flex; align-items: center; gap: 7px; margin: -8px 0 20px; }
-.settings-topline .back-button { width: 44px; padding: 0; }
+.settings-topline { display: flex; align-items: center; gap: 12px; margin: -8px 0 24px; }
+.settings-topline .back-button { width: auto; flex: 0 0 auto; padding: 0 8px 0 0; white-space: nowrap; }
 .settings-topline h1 { margin: 0; color: var(--gray-900); font-size: 24px; letter-spacing: -0.05em; }
 .settings-section { margin-bottom: 24px; }
 .settings-section h2 { font-size: 18px; }
+.settings-heading { align-items: flex-start; flex-wrap: wrap; row-gap: 8px; }
+.settings-heading h2 { flex: 1 1 auto; min-width: 0; }
+.settings-heading .small-action { flex: 0 0 auto; }
+.settings-panel-list { margin-top: 18px; }
+.settings-panel-link {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--gray-900);
+  text-align: left;
+}
+.settings-panel-link:last-child { border-bottom: 0; }
+.settings-panel-link > span:first-child { display: grid; place-items: center; color: var(--teal-700); font-size: 24px; font-weight: 800; }
+.settings-panel-link > span:nth-child(2) { display: grid; gap: 3px; }
+.settings-panel-link small { color: var(--gray-500); font-size: 12px; }
+.settings-panel-link:active { background: var(--gray-50); }
+.settings-panel-heading { display: grid; gap: 8px; }
+.settings-panel-heading > .back-button { justify-self: start; }
+.settings-panel-heading .settings-heading { width: 100%; }
 .settings-list { margin-top: 9px; border: 1px solid var(--gray-200); box-shadow: none; }
 .settings-row { grid-template-columns: 42px minmax(0, 1fr) auto; min-height: 54px; padding: 8px 11px; }
 .settings-row > span:first-child { font-size: 17px; }
@@ -1368,6 +1402,19 @@ body {
 .modal { width: min(calc(100% - 24px), 500px); max-width: calc(100vw - 24px); }
 .modal, .modal-card { max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
 .modal-card { gap: 13px; padding: 20px 16px 16px; border-radius: 16px; }
+#expenseModal {
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  overflow: hidden;
+  touch-action: none;
+}
+#expenseModal[open] { display: grid; place-items: center; }
+#expenseModal .modal-card { width: 100%; max-height: 100%; }
 .modal-card h2 { margin-right: 42px; font-size: 20px; }
 .close-button { top: 10px; right: 10px; width: 44px; height: 44px; font-size: 26px; }
 .wizard-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
