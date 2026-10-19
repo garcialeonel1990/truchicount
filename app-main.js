@@ -3,7 +3,7 @@ import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCa
 import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
 import { expensesCsv, summarizeExpenses } from "./summary.js";
-import { installEdgeBack } from "./edge-back.js";
+import { installEdgeBack, installEdgeTabs } from "./edge-back.js";
 
 const $ = (s) => document.querySelector(s);
 const state = { user: null, profile: null, accessStarted: false, screen: "startup", generation: 0, profileCreationStarted: false, homeLoading: { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], categoriesReady: false, merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
@@ -832,20 +832,33 @@ function openExpenseModal(expense) {
   form.elements.amount.value = expense ? formatMoneyPlain(expense.amountMinor) : ""; form.elements.expenseDate.value = expense ? dateISO(expense.expenseDate) : localDateISO(); form.elements.notes.value = expense?.notes || "";
   renderMerchantOptions(); updateSplitPreview(); dialogs.expenseModal.showModal();
 }
+function closeExpenseModal() {
+  const dialog = dialogs.expenseModal;
+  if (!dialog?.open) return;
+  // iOS can retain the dialog top-layer compositing while an input keeps focus.
+  // Release focus before closing so the header, status-bar area and safe-area
+  // inset are painted normally again on the next frame.
+  document.activeElement?.blur?.();
+  dialog.close();
+  requestAnimationFrame(() => {
+    if (!dialog.open) document.body.offsetHeight;
+  });
+}
 function renderPayerAllocations(members, expense = state.editing) {
   const enabled = $("#multiplePayersToggle").checked;
   $("#payerAllocationSection").hidden = !enabled;
   const list = $("#payerAllocationList"); list.replaceChildren();
   if (!enabled) return;
   const currentShares = collectPayerShares();
-  const currentAmount = tryParseMoney($("#expenseForm").elements.amount.value);
-  const payerShares = expense?.payerShares || (Object.keys(currentShares).length ? currentShares : { [expense?.payerMemberId || $("#expensePayer").value]: expense?.amountMinor || (currentAmount.ok ? currentAmount.value : 0) });
+  const payerShares = expense?.payerShares || (Object.keys(currentShares).length ? currentShares : {});
   const participantIds = [...document.querySelectorAll("[name='participant']:checked")].map((input) => input.value);
   const membersById = new Map(members.map((member) => [member.id, member]));
   participantIds.forEach((memberId) => {
     const member = membersById.get(memberId); if (!member) return;
     const label = document.createElement("label"); label.className = "payer-allocation-row";
-    label.innerHTML = '<span>' + esc(memberName(member)) + '</span><input type="text" inputmode="decimal" data-payer-member="' + esc(memberId) + '" value="' + formatMoneyPlain(payerShares[memberId] || 0) + '" placeholder="0,00" />';
+    const share = payerShares[memberId];
+    const value = Number.isSafeInteger(share) && share >= 0 ? formatMoneyPlain(share) : "";
+    label.innerHTML = '<span>' + esc(memberName(member)) + '</span><input type="text" inputmode="decimal" data-payer-member="' + esc(memberId) + '" value="' + value + '" />';
     list.append(label);
   });
   updatePayerAllocationTotal();
@@ -872,14 +885,31 @@ function updateSplitPreview() {
   else if (!parsed.ok) $("#splitPreview").textContent = "Ingresá un monto válido";
   else $("#splitPreview").textContent = formatMoney(Math.floor(parsed.value / selected), $("#expenseCurrency").value) + (parsed.value % selected ? " cada uno · se reparte 1 centavo de diferencia" : " cada uno");
 }
-function openExpenseDetail(expense) {
+function expenseDetailItems() {
+  return activeExpenses().slice().sort((a, b) => dateISO(b.expenseDate).localeCompare(dateISO(a.expenseDate)));
+}
+function renderExpenseDetail(expense) {
   state.selectedExpense = expense;
   const participants = expense.participantMemberIds.map(nameOf).map(esc).join(", ");
   const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
+  const items = expenseDetailItems();
+  const index = items.findIndex((item) => item.id === expense.id);
+  $("#expenseDetailPosition").textContent = items.length > 1 ? (index + 1) + " de " + items.length : "Detalle del gasto";
+  $("#previousExpenseButton").disabled = index <= 0;
+  $("#nextExpenseButton").disabled = index < 0 || index >= items.length - 1;
   $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + esc(category.emoji) + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Pagó</dt><dd>' + esc(expensePayerNames(expense)) + '</dd></div><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
+}
+function openExpenseDetail(expense) {
+  renderExpenseDetail(expense);
   $("#editExpenseButton").hidden = isReadOnly();
   $("#deleteExpenseButton").hidden = isReadOnly();
   dialogs.expenseDetailModal.showModal();
+}
+function moveExpenseDetail(direction) {
+  const items = expenseDetailItems();
+  const index = items.findIndex((item) => item.id === state.selectedExpense?.id);
+  const next = items[index + direction];
+  if (next) renderExpenseDetail(next);
 }
 function openSettlementModal(suggestion) {
   if (isReadOnly()) return;
@@ -1034,7 +1064,7 @@ document.querySelectorAll("[data-settings-panel]").forEach((button) => on(button
 document.querySelectorAll("[data-settings-home]").forEach((button) => on(button, "click", () => showSettingsPanel("hub")));
 installEdgeBack({
   target: $("#appShell"),
-  canStart: () => window.innerWidth < 640 && !$("#appShell").hidden && ["detail", "settings"].includes(state.screen) && !document.querySelector("dialog[open]") ? state.screen : null,
+  canStart: () => window.innerWidth < 640 && !$("#appShell").hidden && (state.screen === "settings" || state.screen === "detail" && activeDetailTab() === "expenses") && !document.querySelector("dialog[open]") ? state.screen : null,
   isInteractive: (element) => {
     if (!(element instanceof Element)) return true;
     if (element.closest("button, a, input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return true;
@@ -1044,6 +1074,25 @@ installEdgeBack({
     return false;
   },
   onBack: () => showScreen("home"),
+});
+function activeDetailTab() { return document.querySelector(".tab.is-selected")?.dataset.tab || "expenses"; }
+function selectDetailTab(tabName) {
+  document.querySelectorAll("[data-tab]").forEach((item) => {
+    const selected = item.dataset.tab === tabName;
+    item.classList.toggle("is-selected", selected);
+    item.setAttribute("aria-selected", String(selected));
+  });
+  document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === tabName + "Panel"));
+}
+installEdgeTabs({
+  target: $("#appShell"),
+  canStart: () => window.innerWidth < 640 && !$("#appShell").hidden && state.screen === "detail" && !document.querySelector("dialog[open]") ? state.screen : null,
+  isInteractive: (element) => {
+    if (!(element instanceof Element)) return true;
+    return Boolean(element.closest("button, a, input, textarea, select, [contenteditable]:not([contenteditable='false'])"));
+  },
+  onNext: () => { const index = ["expenses", "balances", "summary"].indexOf(activeDetailTab()); if (index < 2) selectDetailTab(["expenses", "balances", "summary"][index + 1]); },
+  onPrevious: () => { const index = ["expenses", "balances", "summary"].indexOf(activeDetailTab()); if (index > 0) selectDetailTab(["expenses", "balances", "summary"][index - 1]); },
 });
 on($("#countTitle"), "click", () => { if (state.count?.name) showToast(state.count.name); });
 on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
@@ -1065,14 +1114,12 @@ on($("#deleteCategoryModalButton"), "click", async () => {
   closeEmojiPicker(); dialogs.categoryModal.close();
 });
 on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.googleDisplayName || state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
-document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => dialogs[button.dataset.close].close()));
+document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => {
+  if (button.dataset.close === "expenseModal") closeExpenseModal();
+  else dialogs[button.dataset.close].close();
+}));
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => {
-  document.querySelectorAll("[data-tab]").forEach((item) => {
-    const selected = item === button;
-    item.classList.toggle("is-selected", selected);
-    item.setAttribute("aria-selected", String(selected));
-  });
-  document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === button.dataset.tab + "Panel"));
+  selectDetailTab(button.dataset.tab);
 }));
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
 document.querySelectorAll("[data-admin-tab]").forEach((button) => on(button, "click", () => { state.adminTab = button.dataset.adminTab; renderAdmin(); }));
@@ -1083,6 +1130,26 @@ on($("#expenseForm"), "change", (event) => {
   else if (event.target.name === "participant") renderPayerAllocations(state.members.filter((member) => member.active), state.editing);
   else if ($("#multiplePayersToggle").checked) updatePayerAllocationTotal();
 });
+on($("#previousExpenseButton"), "click", () => moveExpenseDetail(-1));
+on($("#nextExpenseButton"), "click", () => moveExpenseDetail(1));
+let expenseDetailTouch = null;
+on(dialogs.expenseDetailModal, "touchstart", (event) => {
+  if (event.touches.length !== 1 || event.target.closest?.("button, a, input, textarea, select")) return;
+  const touch = event.touches[0];
+  expenseDetailTouch = { x: touch.clientX, y: touch.clientY, id: touch.identifier };
+}, { passive: true });
+on(dialogs.expenseDetailModal, "touchend", (event) => {
+  if (!expenseDetailTouch || event.touches.length) return;
+  const start = expenseDetailTouch;
+  expenseDetailTouch = null;
+  const touch = [...event.changedTouches].find((item) => item.identifier === start.id);
+  if (!touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = Math.abs(touch.clientY - start.y);
+  if (Math.abs(dx) < 70 || dy > Math.abs(dx) * 1.25) return;
+  moveExpenseDetail(dx < 0 ? 1 : -1);
+}, { passive: true });
+on(dialogs.expenseDetailModal, "touchcancel", () => { expenseDetailTouch = null; }, { passive: true });
 
 on($("#draftMemberForm"), "submit", async (event) => {
   event.preventDefault(); const form = event.currentTarget; const button = event.submitter; const member = state.draftEditing;
@@ -1123,7 +1190,7 @@ on($("#expenseForm"), "submit", async (event) => {
   setBusy(button, true, state.editing ? "Guardar cambios" : "Guardar gasto");
   try {
     await saveExpense({ countId: state.count.id, form: { title: form.elements.title.value, merchantName: form.elements.merchant.value, amountMinor, currency: form.elements.currency.value, expenseDate: form.elements.expenseDate.value, categoryId: form.elements.category.value, payerMemberId: form.elements.payer.value, payerShares, participantMemberIds: participants, notes: form.elements.notes.value }, members: state.members, categories: state.categories, actor: state.user, expenseId: state.editing?.id, before: state.editing });
-    dialogs.expenseModal.close();
+    closeExpenseModal();
   } catch (exception) { error($("#expenseError"), exception, "No pudimos guardar el gasto. Revisá tu conexión e intentá nuevamente."); } finally { setBusy(button, false, state.editing ? "Guardar cambios" : "Guardar gasto"); }
 });
 on($("#editExpenseButton"), "click", () => { dialogs.expenseDetailModal.close(); openExpenseModal(state.selectedExpense); });
