@@ -7,7 +7,7 @@ import { installEdgeBack, installSwipeTabs } from "./edge-back.js";
 import { DEFAULT_COUNT_EMOJI } from "./count-metadata.js";
 import { POPULAR_CURRENCIES, currencyFlag } from "./currencies.js";
 import { evaluateAmountExpression, hasOperator } from "./amount-expression.js";
-import { openMenu } from "./menu-popover.js";
+import { closeMenus, openMenu } from "./menu-popover.js";
 import { buildWhatsAppUrl } from "./share-links.js";
 
 const $ = (s) => document.querySelector(s);
@@ -888,9 +888,10 @@ function openExpenseModal(expense) {
 function closeExpenseDialog(dialog) {
   if (!dialog?.open) return;
   document.activeElement?.blur?.();
+  closeMenus();
+  const amountOperators = $("#amountOperators");
+  if (amountOperators) amountOperators.hidden = true;
   dialog.close();
-  // Drop the closed top-layer surface so iOS does not keep its backdrop cached.
-  dialog.hidden = true;
 }
 function closeExpenseModal() { closeExpenseDialog(dialogs.expenseModal); }
 function refreshExpensePills() {
@@ -1205,6 +1206,10 @@ document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", 
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
 document.querySelectorAll("[data-admin-tab]").forEach((button) => on(button, "click", () => { state.adminTab = button.dataset.adminTab; renderAdmin(); }));
 on($("#expenseForm"), "input", () => { updateSplitPreview(); if ($("#multiplePayersToggle").checked) updatePayerAllocationTotal(); });
+on($("#expenseForm"), "focusin", (event) => {
+  if (!event.target.matches("input, select, textarea, button")) return;
+  requestAnimationFrame(() => event.target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" }));
+});
 on($("#expenseForm")?.elements.amount, "focus", () => { $("#amountOperators").hidden = false; });
 on($("#expenseForm")?.elements.amount, "blur", () => { const input = $("#expenseForm").elements.amount; if (hasOperator(input.value)) { const parsed = readAmount(input.value); if (parsed.ok) input.value = formatMoneyPlain(parsed.value); else $("#amountExpressionResult").textContent = parsed.error.message; } setTimeout(() => { $("#amountOperators").hidden = true; }, 0); });
 document.querySelectorAll("[data-amount-op]").forEach((button) => on(button, "pointerdown", (event) => { event.preventDefault(); const input = $("#expenseForm").elements.amount; const start = input.selectionStart ?? input.value.length; input.value = input.value.slice(0, start) + button.dataset.amountOp + input.value.slice(input.selectionEnd ?? start); input.focus(); input.setSelectionRange(start + 1, start + 1); }));

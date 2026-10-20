@@ -40,7 +40,7 @@ test("RF-UI: el sistema visual define todos los tokens teal usados", async () =>
 
 test("RF-UI: cerrar un modal no deja una capa de blur sobre la app en iOS", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.doesNotMatch(css.replace(/\.(menu-popover|amount-operators)\s*\{[^}]*\}/g, ""), /backdrop-filter\s*:/);
+  assert.doesNotMatch(css, /backdrop-filter\s*:/);
 });
 
 test("RF-UI: el formulario de gasto bloquea el arrastre del shell en móviles", async () => {
