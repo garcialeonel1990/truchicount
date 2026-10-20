@@ -1957,6 +1957,153 @@ body {
   #expenseModal .category-button { width: 50px; }
 }
 
+/* Ajustes v2 — navigation, grouped lists and compact admin. */
+#settingsScreen {
+  padding-top: 16px;
+}
+#settingsScreen .settings-topline {
+  display: flex;
+  align-items: center;
+  gap: var(--tc-space-3);
+  margin: 0 0 var(--tc-space-5);
+}
+#settingsScreen .settings-topline h1 {
+  margin: 0;
+  color: var(--tc-ink);
+  font-size: clamp(24px, 6vw, 28px);
+  line-height: 1.15;
+}
+#settingsScreen .settings-topline .back-button,
+#settingsScreen .settings-panel-heading > .back-button {
+  min-height: var(--tc-touch-min);
+  padding: 0 var(--tc-space-2) 0 0;
+  color: var(--tc-brand);
+  font-size: 14px;
+  white-space: nowrap;
+}
+#settingsScreen .settings-section { margin-bottom: var(--tc-space-6); }
+#settingsScreen .settings-section > .section-copy { margin: 0 0 var(--tc-space-3); }
+#settingsScreen .settings-panel-list,
+#settingsScreen .settings-list {
+  margin-top: 0;
+  border: 1px solid var(--tc-border);
+  border-radius: 16px;
+  background: var(--tc-surface);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+#settingsScreen .settings-panel-link {
+  grid-template-columns: 32px minmax(0, 1fr) 20px;
+  min-height: 56px;
+  padding: var(--tc-space-2) var(--tc-space-4);
+  gap: var(--tc-space-3);
+}
+#settingsScreen .settings-panel-link > span:first-child { font-size: 21px; }
+#settingsScreen .settings-panel-link > span:nth-child(2) { gap: 2px; }
+#settingsScreen .settings-panel-link strong { color: var(--tc-ink); font-size: 16px; }
+#settingsScreen .settings-panel-link small { font-size: 13px; }
+#settingsScreen .settings-panel-link .chevron,
+#settingsScreen .category-row .chevron { color: var(--tc-ink-muted); font-size: 20px; font-weight: 400; }
+#settingsScreen .settings-panel-heading { display: grid; gap: var(--tc-space-2); margin-bottom: var(--tc-space-3); }
+#settingsScreen .settings-panel-heading .settings-heading { display: flex; align-items: center; gap: var(--tc-space-3); width: 100%; }
+#settingsScreen .settings-panel-heading .settings-heading h2 { flex: 1 1 auto; min-width: 0; color: var(--tc-ink); font-size: 20px; line-height: 1.2; }
+#settingsScreen .settings-panel-heading .small-action { min-height: 44px; padding-inline: var(--tc-space-3); border-radius: 12px; white-space: nowrap; }
+#settingsScreen .settings-row {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  min-height: 54px;
+  padding: var(--tc-space-2) var(--tc-space-4);
+  gap: var(--tc-space-3);
+}
+#settingsScreen .settings-row > span:first-child { font-size: 23px; }
+#settingsScreen .settings-row strong { color: var(--tc-ink); font-size: 16px; }
+#settingsScreen .settings-row small { color: var(--tc-ink-muted); font-size: 13px; }
+#settingsScreen .category-row-action { min-height: 54px; }
+#settingsScreen .category-row > span:first-child { width: 28px; height: 28px; font-size: 24px; }
+#settingsScreen .empty-category-row { padding: 14px var(--tc-space-4); color: var(--tc-ink-muted); font-size: 14px; text-align: left; }
+#settingsScreen .admin-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  min-height: 44px;
+  margin: 0 0 var(--tc-space-3);
+  padding: 3px;
+  border: 1px solid var(--tc-border);
+  border-radius: 12px;
+  background: var(--tc-surface-muted);
+}
+#settingsScreen .admin-tab {
+  min-height: 38px;
+  padding-inline: 8px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--tc-ink-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+#settingsScreen .admin-tab.is-selected { background: var(--tc-surface); color: var(--tc-brand); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }
+#settingsScreen .admin-empty-state { min-height: 52px; }
+
+/* The emoji library stays inside the existing dialog: one focus layer, one
+   controlled scroll area, and a clear return action on narrow screens. */
+#categoryModal .modal-card,
+#countModal .modal-card { overflow: hidden; }
+.emoji-picker-popover {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: inherit;
+  background: var(--tc-surface);
+  box-shadow: none;
+}
+.emoji-picker-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--tc-space-3);
+  min-height: 56px;
+  padding: var(--tc-space-2) var(--tc-space-4);
+  border-bottom: 1px solid var(--tc-border);
+}
+.emoji-picker-header h2 { flex: 1 1 auto; margin: 0; color: var(--tc-ink); font-size: 18px; }
+.emoji-picker-back { min-height: 44px; padding: 0 8px 0 0; background: transparent; color: var(--tc-brand); font-size: 14px; font-weight: 700; }
+.emoji-picker-popover emoji-picker { flex: 1 1 auto; width: 100%; height: auto; min-height: 0; --indicator-color: var(--tc-brand-accent); --outline-color: var(--tc-brand); }
+
+@media (max-width: 359px) {
+  #settingsScreen .settings-panel-heading .settings-heading { align-items: flex-start; flex-wrap: wrap; }
+  #settingsScreen .settings-panel-heading .settings-heading h2 { flex-basis: 100%; }
+  #settingsScreen .settings-panel-heading .small-action { margin-left: 0; }
+}
+
+/* Keep the picker-sheet geometry authoritative after legacy picker rules. */
+#categoryModal .emoji-picker-popover,
+#countModal .emoji-picker-popover {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: inherit;
+  background: var(--tc-surface);
+  box-shadow: none;
+}
+#categoryModal .emoji-picker-header,
+#countModal .emoji-picker-header { display: flex; flex: 0 0 auto; align-items: center; gap: var(--tc-space-3); min-height: 56px; padding: var(--tc-space-2) var(--tc-space-4); border-bottom: 1px solid var(--tc-border); }
+#categoryModal .emoji-picker-header h2,
+#countModal .emoji-picker-header h2 { flex: 1 1 auto; margin: 0; color: var(--tc-ink); font-size: 18px; }
+#categoryModal .emoji-picker-back,
+#countModal .emoji-picker-back { min-height: 44px; padding: 0 8px 0 0; background: transparent; color: var(--tc-brand); font-size: 14px; font-weight: 700; }
+#categoryModal .emoji-picker-popover emoji-picker,
+#countModal .emoji-picker-popover emoji-picker { flex: 1 1 auto; width: 100%; height: auto; min-height: 0; --indicator-color: var(--tc-brand-accent); --outline-color: var(--tc-brand); }
+
 /* Rounded, spacious surfaces shared by the Count, expense and profile views. */
 .ui-icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .primary-button, .secondary-button { border-radius: var(--radius-pill); }

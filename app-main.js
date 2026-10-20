@@ -15,6 +15,7 @@ const state = { user: null, profile: null, accessStarted: false, screen: "startu
 const unsubscribers = { access: [], app: [], resources: [], admin: [], detail: [], profiles: [] };
 const dialogs = ["countModal", "draftMemberModal", "categoryModal", "currencyModal", "expenseModal", "expenseDetailModal", "settlementModal", "inviteModal", "inviteIdentityModal", "memberModal", "memberChoiceModal", "memberActionModal", "memberCorrectionModal", "manualMemberModal", "adminUserModal", "accountModal", "nicknameModal", "countActionsModal", "archiveConfirmModal", "unarchiveConfirmModal"].reduce((all, id) => Object.assign(all, { [id]: $("#" + id) }), {});
 const startupMarks = new Set();
+let emojiPickerReturnFocus = null;
 const startupDiagnostics = new URLSearchParams(location.search).has("startupDebug") || (() => { try { return localStorage.getItem("truchicountStartupDebug") === "1"; } catch { return false; } })();
 let categoriesPromise = null;
 let categoryDefaultsRequested = false;
@@ -282,6 +283,7 @@ function showScreen(name) {
 function showSettingsPanel(panel) {
   settingsPanel = panel;
   const isHub = panel === "hub";
+  $("#settingsTopline").hidden = !isHub;
   $("#settingsHub").hidden = !isHub;
   document.querySelectorAll(".settings-panel").forEach((item) => { item.hidden = isHub || item.id !== panel + "SettingsPanel"; });
 }
@@ -606,7 +608,11 @@ function renderAdmin() {
   });
   const list = $("#adminUserList"); list.replaceChildren();
   const users = state.accessUsers.filter((user) => user.accessStatus === state.adminTab).sort((a, b) => String(a.googleDisplayName || a.email).localeCompare(String(b.googleDisplayName || b.email), "es"));
-  if (!users.length) { list.innerHTML = '<div class="empty-category-row">No hay usuarios en esta sección.</div>'; return; }
+  if (!users.length) {
+    const emptyCopy = { pending: "No hay usuarios pendientes.", approved: "No hay usuarios aprobados.", blocked: "No hay usuarios bloqueados." }[state.adminTab] || "No hay usuarios en esta sección.";
+    list.innerHTML = '<div class="empty-category-row admin-empty-state">' + emptyCopy + '</div>';
+    return;
+  }
   users.forEach((user) => {
     const row = document.createElement("button"); row.type = "button"; row.className = "settings-row admin-user-row";
     const status = user.accessStatus === "pending" ? "Pendiente" : user.accessStatus === "blocked" ? "Bloqueado" : "Activo";
@@ -680,7 +686,10 @@ function openCategoryModal(category = null) {
 }
 
 function closeEmojiPicker() {
-  document.querySelector(".emoji-picker-popover")?.remove();
+  const picker = document.querySelector(".emoji-picker-popover");
+  picker?.remove();
+  if (emojiPickerReturnFocus && document.activeElement === document.body && dialogs.categoryModal.open) emojiPickerReturnFocus.focus({ preventScroll: true });
+  emojiPickerReturnFocus = null;
 }
 
 async function openEmojiPicker(target = "category") {
@@ -688,6 +697,7 @@ async function openEmojiPicker(target = "category") {
   const isCount = target === "count";
   const dialog = isCount ? dialogs.countModal : dialogs.categoryModal;
   const trigger = $(isCount ? "#countEmojiButton" : "#emojiPickerButton");
+  emojiPickerReturnFocus = trigger;
   // iOS can keep the category name keyboard open while the picker is loading.
   // Blur the field before creating the picker so the keyboard cannot cover it.
   document.activeElement?.blur?.();
@@ -705,6 +715,16 @@ async function openEmojiPicker(target = "category") {
   if (!dialog.open) return;
   const popover = document.createElement("div");
   popover.className = "emoji-picker-popover";
+  const header = document.createElement("header");
+  header.className = "emoji-picker-header";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "emoji-picker-back";
+  back.textContent = "‹ Volver";
+  back.addEventListener("click", closeEmojiPicker);
+  const heading = document.createElement("h2");
+  heading.textContent = "Elegí un emoji";
+  header.append(back, heading);
   const picker = document.createElement("emoji-picker");
   picker.addEventListener("emoji-click", (event) => {
     const emoji = event.detail?.unicode || event.detail?.emoji?.unicode || event.detail?.emoji || "🧾";
@@ -718,7 +738,7 @@ async function openEmojiPicker(target = "category") {
     }
     closeEmojiPicker();
   });
-  popover.append(picker);
+  popover.append(header, picker);
   // Keep the picker inside the dialog's top layer. Appending it to body puts
   // it behind dialog::backdrop on iOS, making the picker look blurred and
   // preventing taps/typing from reaching it.
@@ -1174,6 +1194,7 @@ on($("#countCloseButton"), "click", cancelCountWizard);
 on($("#countForm"), "submit", (event) => { event.preventDefault(); finalizeCountForm(); });
 on($("#countEmojiButton"), "click", () => openEmojiPicker("count"));
 on(dialogs.countModal, "close", closeEmojiPicker);
+on(dialogs.categoryModal, "close", closeEmojiPicker);
 on($("#draftAddMemberButton"), "click", addDraftParticipant);
 on($("#draftMemberName"), "keydown", (event) => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); addDraftParticipant(); } });
 on($("#inviteNoneButton"), "click", () => chooseInviteIdentity());
