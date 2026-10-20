@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "npm run test:unit",
-    "test:unit": "node --test test/ledger.test.mjs",
+    "test:unit": "node --test test/ledger.test.mjs test/expense-input.test.mjs",
     "test:emulator": "node --test --test-concurrency=1 test/*-emulator.test.mjs"
   },
   "dependencies": {

@@ -99,3 +99,18 @@ test("dos confirmaciones concurrentes sólo aplican una vez", async () => {
   assert.equal(results.filter((result) => result.status === "rejected" && result.reason.code === "failed-precondition").length, 1);
   assert.equal((await db.collection(`counts/${COUNT_ID}/settlements`).get()).size, 1);
 });
+
+test("BUG-05: acepta la liquidación de un gasto con pagadores múltiples", async () => {
+  await db.doc(`counts/${COUNT_ID}/members/c`).set({ type: "manual", userId: null, active: true });
+  await db.doc(`counts/${COUNT_ID}/expenses/expenseA`).set({
+    status: "active", amountMinor: 9000, currency: "ARS", payerMemberId: "a",
+    payerShares: { a: 3000, b: 6000 },
+    participantMemberIds: ["a", "b", "c"], participantShares: { a: 3000, b: 3000, c: 3000 },
+  });
+  const requestId = "123e4567-e89b-42d3-a456-426614174005";
+  const multiSuggestion = { fromMemberId: "c", toMemberId: "b", currency: "ARS", amountMinor: 3000 };
+  assert.deepEqual(
+    await createSettlementCommand({ db, uid: "owner", input: { countId: COUNT_ID, requestId, suggestion: multiSuggestion } }),
+    { settlementId: requestId, alreadyApplied: false },
+  );
+});

@@ -1,9 +1,9 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { currentSuggestions } from "./ledger.js";
+import { isSupportedCurrency } from "./currencies.js";
 
 const ADMIN_UID = "8qvbKFXafDXWWGDPo2OFDul6uss1";
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SUPPORTED_CURRENCIES = new Set(["ARS", "USD", "BRL", "UYU"]);
 
 export class SettlementCommandError extends Error {
   constructor(code, message) {
@@ -30,7 +30,7 @@ function parseInput(input) {
   if (Object.keys(suggestion).sort().join(",") !== "amountMinor,currency,fromMemberId,toMemberId") fail("invalid-argument", "La liquidación contiene campos no permitidos.");
   const { fromMemberId, toMemberId, currency, amountMinor } = suggestion;
   if (!validId(fromMemberId) || !validId(toMemberId) || fromMemberId === toMemberId) fail("invalid-argument", "Los integrantes de la liquidación no son válidos.");
-  if (!SUPPORTED_CURRENCIES.has(currency) || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) fail("invalid-argument", "El monto o la moneda no son válidos.");
+  if (!isSupportedCurrency(currency) || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) fail("invalid-argument", "El monto o la moneda no son válidos.");
   return { countId, requestId: requestId.toLowerCase(), suggestion: { fromMemberId, toMemberId, currency, amountMinor } };
 }
 

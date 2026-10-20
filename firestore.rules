@@ -94,19 +94,11 @@ service cloud.firestore {
     }
 
     function isSupportedCurrency(currency) {
-      return currency == "ARS" || currency == "USD" || currency == "BRL" || currency == "UYU";
+      return currency is string && currency in currencyCodes();
     }
 
-    function hasValidExpenseShape(data, countId) {
-      return data.countId == countId
-        && data.amountMinor is int && data.amountMinor > 0
-        && isSupportedCurrency(data.currency)
-        && data.payerMemberId is string
-        && data.participantMemberIds is list && data.participantMemberIds.size() > 0
-        && data.participantMemberIds.toSet().size() == data.participantMemberIds.size()
-        && data.participantShares is map
-        && data.participantShares.keys().hasOnly(data.participantMemberIds)
-        && data.participantShares.keys().hasAll(data.participantMemberIds);
+    function currencyCodes() {
+      return ["AED", "AFN", "ALL", "AMD", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN", "BHD", "BIF", "BMD", "BND", "BOB", "BRL", "BSD", "BTN", "BWP", "BYN", "BZD", "CAD", "CDF", "CHF", "CLP", "CNY", "COP", "CRC", "CUP", "CVE", "CZK", "DJF", "DKK", "DOP", "DZD", "EGP", "ERN", "ETB", "EUR", "FJD", "FKP", "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL", "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD", "JOD", "JPY", "KES", "KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT", "LAK", "LBP", "LKR", "LRD", "LSL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MRU", "MUR", "MVR", "MWK", "MXN", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN", "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SOS", "SRD", "SSP", "STN", "SVC", "SYP", "SZL", "THB", "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD", "UYU", "UZS", "VES", "VND", "VUV", "WST", "XAF", "XCD", "XCG", "XOF", "XPF", "YER", "ZAR", "ZMW", "ZWG"];
     }
 
     match /users/{uid} {
@@ -135,6 +127,14 @@ service cloud.firestore {
           && uid != "8qvbKFXafDXWWGDPo2OFDul6uss1"
           && request.resource.data.uid == uid
           && request.resource.data.isAdmin == false
+          && (!request.resource.data.keys().hasAny(["enabledCurrencies"])
+            || (request.resource.data.enabledCurrencies is list
+              && request.resource.data.enabledCurrencies.size() >= 1
+              && request.resource.data.enabledCurrencies.size() <= 20
+              && request.resource.data.enabledCurrencies.hasOnly(currencyCodes())))
+          && (!request.resource.data.keys().hasAny(["defaultCurrency"])
+            || request.resource.data.defaultCurrency == null
+            || isSupportedCurrency(request.resource.data.defaultCurrency))
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "uid", "googleDisplayName", "email", "alias", "accessStatus", "isAdmin",
             "requestedAt", "lastLoginAttemptAt", "updatedAt", "defaultCurrency",
@@ -150,61 +150,41 @@ service cloud.firestore {
     }
 
     match /counts/{countId} {
+      function validEmoji(data) {
+        return !data.keys().hasAny(["emoji"])
+          || (data.emoji is string && data.emoji.size() > 0 && data.emoji.size() <= 32 && data.emoji.matches('^[^<>&"=]+$'));
+      }
       allow create: if isAdmin()
         || (isApprovedUser()
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.status == "draft");
+          && request.resource.data.status == "draft"
+          && (request.resource.data.primaryCurrency == null || isSupportedCurrency(request.resource.data.primaryCurrency))
+          && validEmoji(request.resource.data));
       allow read: if isAdmin() || isCountMember(countId);
       allow update: if isAdmin()
         || (isDraftOwner(countId)
           && request.resource.data.status == "draft"
+          && (request.resource.data.primaryCurrency == null || isSupportedCurrency(request.resource.data.primaryCurrency))
+          && validEmoji(request.resource.data)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "name", "normalizedName", "primaryCurrency", "defaultCurrency",
+            "name", "normalizedName", "emoji", "primaryCurrency", "defaultCurrency",
             "updatedAt", "updatedBy", "draftExpiresAt"
           ]))
         || (isDraftOwner(countId)
           && request.resource.data.status == "active"
+          && (request.resource.data.primaryCurrency == null || isSupportedCurrency(request.resource.data.primaryCurrency))
           && isDraftInviteActivatedAfter(countId, resource.data.draftInviteToken)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "name", "normalizedName", "primaryCurrency", "defaultCurrency", "status",
             "activatedAt", "updatedAt", "updatedBy", "draftExpiresAt"
           ]))
-        || (isCountMember(countId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "status", "archiveBalanceSnapshot", "firstArchivedAt", "firstArchivedBy",
-            "lastArchivedAt", "lastArchivedBy", "lastArchivedByNameSnapshot",
-            "lastUnarchivedAt", "lastUnarchivedBy", "lastUnarchivedByNameSnapshot",
-            "updatedAt", "updatedBy"
-          ])
-          && ((resource.data.status == "active" && request.resource.data.status == "archived")
-            || (resource.data.status == "archived" && request.resource.data.status == "active")))
-        || (isActiveCountMember(countId)
-          && request.resource.data.status == "active"
-          && request.resource.data.hasMovements == true
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "hasMovements", "updatedAt", "updatedBy"
-          ]));
+        ;
       allow delete: if isAdmin() || isDraftOwner(countId);
 
       match /expenses/{expenseId} {
         allow read: if isAdmin() || isCountMember(countId);
-        allow create: if isAdmin() || (isActiveCountMember(countId)
-          && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.updatedBy == request.auth.uid
-          && request.resource.data.status == "active"
-          && request.resource.data.currency == get(/databases/$(database)/documents/counts/$(countId)).data.primaryCurrency
-          && hasValidExpenseShape(request.resource.data, countId));
-        allow update: if isAdmin() || (isActiveCountMember(countId)
-          && request.resource.data.createdBy == resource.data.createdBy
-          && request.resource.data.updatedBy == request.auth.uid
-          && request.resource.data.currency == resource.data.currency
-          && hasValidExpenseShape(request.resource.data, countId)
-          && ((request.resource.data.status == "active"
-              && resource.data.status == "active")
-            || (request.resource.data.status == "deleted"
-              && request.resource.data.deletedBy == request.auth.uid)));
-        allow delete: if isAdmin();
+        allow write: if false;
       }
 
       match /settlements/{settlementId} {
@@ -216,7 +196,7 @@ service cloud.firestore {
       match /members/{memberId} {
         // Un invitado aprobado puede resolver únicamente un Member conocido
         // desde su invite; el listado completo sigue siendo privado del Count.
-        allow get: if isAdmin() || isCountMember(countId) || isApprovedUser();
+        allow get: if isAdmin() || isCountMember(countId) || (isApprovedUser() && (memberId == "registered_" + request.auth.uid || resource == null || resource.data.userId == request.auth.uid || (resource.data.type == "manual" && resource.data.active == true && resource.data.userId == null)));
         allow list: if isAdmin() || isCountMember(countId);
         // Los manuales no poseen Auth; sólo un integrante registrado puede
         // crearlos. Los registrados llegan exclusivamente por una invitación.
@@ -255,15 +235,9 @@ service cloud.firestore {
                 && request.resource.data.userId == null
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                   "alias", "normalizedAlias", "manualAlias", "normalizedManualAlias",
-                  "active", "removedAt", "removedBy",
                   "updatedAt", "updatedBy"
                 ]))
-              || (resource.data.type == "registered"
-                && request.resource.data.type == "registered"
-                && request.resource.data.userId == resource.data.userId
-                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                  "active", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"
-                ]))))
+              ))
           // Reactivación de un manual por un integrante registrado.
           || (signedIn()
             && isActiveCountMember(countId)
@@ -307,9 +281,7 @@ service cloud.firestore {
               "type", "userId", "alias", "aliasSnapshot", "role", "previousManualAlias", "inviteToken",
               "linkedAt", "linkedByUid", "updatedAt", "updatedBy"
             ]));
-        allow delete: if isAdmin() || (isActiveCountMember(countId)
-          && resource.data.active == true)
-          || (isDraftOwner(countId)
+        allow delete: if isAdmin() || (isDraftOwner(countId)
             && (resource.data.type == "manual"
               || !existsAfter(/databases/$(database)/documents/counts/$(countId))));
       }
@@ -339,14 +311,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (membershipId == resource.data.countId + "_" + resource.data.uid
           && membershipId == request.resource.data.countId + "_" + request.resource.data.uid
-          && ((isOwner(resource.data.countId)
-          && isActiveCount(resource.data.countId)
-          && resource.data.status == "active"
-          && request.resource.data.status == "inactive"
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["status", "removedAt", "removedBy", "updatedAt", "updatedBy"])
-          && request.resource.data.removedBy == request.auth.uid)
-        || (isApprovedUser()
+          && (isApprovedUser()
           && resource.data.uid == request.auth.uid
           && resource.data.status == "inactive"
           && request.resource.data.status == "active"
@@ -357,7 +322,7 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.userId == request.auth.uid
           && getAfter(/databases/$(database)/documents/counts/$(resource.data.countId)/members/$(request.resource.data.memberId)).data.active == true
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"]))));
+            .hasOnly(["memberId", "role", "status", "joinedAt", "joinedByInvite", "inviteToken", "removedAt", "removedBy", "updatedAt", "updatedBy"])));
       allow delete: if isAdmin()
         || (isDraftOwner(resource.data.countId)
           && resource.data.uid == request.auth.uid
@@ -418,14 +383,22 @@ service cloud.firestore {
     match /categories/{categoryId} {
       allow read: if isAdmin() || isApprovedUser();
       allow create: if isAdmin() || (isApprovedUser() && request.resource.data.createdBy == request.auth.uid);
-      allow update: if isAdmin() || isApprovedUser();
+      allow update: if isAdmin()
+        || (isApprovedUser()
+          && resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.updatedBy == request.auth.uid)
+        || (isApprovedUser()
+          && resource.data.status == "inactive"
+          && request.resource.data.status == "active"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "emoji", "normalizedName", "status", "updatedAt", "updatedBy", "deletedAt", "deletedBy", "schemaVersion"]));
       allow delete: if isAdmin();
     }
 
     match /merchants/{merchantId} {
       allow read: if isAdmin() || isApprovedUser();
       allow create: if isAdmin() || (isApprovedUser() && request.resource.data.createdBy == request.auth.uid);
-      allow update: if isAdmin() || isApprovedUser();
+      allow update: if isAdmin() || (isApprovedUser() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastUsedAt", "usageCount"]));
       allow delete: if isAdmin();
     }
 
@@ -439,13 +412,15 @@ service cloud.firestore {
           && request.resource.data.action == "requestAccess")
         || (isApprovedUser()
           && request.resource.data.actorUid == request.auth.uid
-          && (request.resource.data.entityType == "category"
-            || isActiveCountMember(request.resource.data.countId)
-            || isActiveCountMemberAfter(request.resource.data.countId)
-            || (isCountMember(request.resource.data.countId)
-              && request.resource.data.entityType == "count"
-              && request.resource.data.action == "unarchiveCount"
-              && isActiveCountAfter(request.resource.data.countId))));
+          && ((request.resource.data.entityType == "category"
+              && request.resource.data.action in ["create", "update", "delete", "reactivate"]
+              && getAfter(/databases/$(database)/documents/categories/$(request.resource.data.entityId)).data.updatedBy == request.auth.uid)
+            || (request.resource.data.entityType == "member"
+              && request.resource.data.action in ["createRegisteredMember", "manualLinkedToUser", "reactivateMember", "createManualMember", "updateManualMemberAlias"]
+              && (isActiveCountMember(request.resource.data.countId) || isActiveCountMemberAfter(request.resource.data.countId)))
+            || (request.resource.data.entityType == "count"
+              && request.resource.data.action == "createCount"
+              && isActiveCountMemberAfter(request.resource.data.countId))));
       allow update, delete: if isAdmin();
     }
   }

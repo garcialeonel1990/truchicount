@@ -1,9 +1,14 @@
 import { signInWithGoogle, signOutUser, watchAuth } from "./firebase.js";
 import { ADMIN_UID, archiveCount, clearCurrentDraft, correctMemberLink, createCategory, createDraftManualMember, createInvite, createManualMember, createSettlement, deleteUserAccess, ensureDefaultCategories, ensureUser, finalizeCountDraft, getDraftMembers, joinInvite, refreshUserInfo, removeCountMember, removeDraftManualMember, saveDraftCurrency, saveDraftName, saveExpense, saveInitialUserAlias, softDeleteCategory, softDeleteExpense, startCountDraft, unarchiveCount, updateCategory, updateDraftManualMember, updateManualMember, updateUserAccess, updateUserSettings, watchAccessUsers, watchCategories, watchCount, watchCounts, watchExpenses, watchMembers, watchMerchants, watchSettlements, watchUser } from "./data-store.js";
 import { calculateNetBalances, simplifyDebts, balanceCurrencies, balancePresentation } from "./balances.js";
-import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, tryParseMoney } from "./money.js";
+import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, formatMoneyPlain, normalizeText, tryParseMoney } from "./money.js";
 import { expensesCsv, summarizeExpenses } from "./summary.js";
-import { installEdgeBack, installEdgeTabs } from "./edge-back.js";
+import { installEdgeBack, installSwipeTabs } from "./edge-back.js";
+import { DEFAULT_COUNT_EMOJI } from "./count-metadata.js";
+import { POPULAR_CURRENCIES, currencyFlag } from "./currencies.js";
+import { evaluateAmountExpression, hasOperator } from "./amount-expression.js";
+import { openMenu } from "./menu-popover.js";
+import { buildWhatsAppUrl } from "./share-links.js";
 
 const $ = (s) => document.querySelector(s);
 const state = { user: null, profile: null, accessStarted: false, screen: "startup", generation: 0, profileCreationStarted: false, homeLoading: { membershipsReady: false, pendingCountIds: [], countErrors: [], failed: false }, adminTab: "pending", accessUsers: [], adminUser: null, inviteIdentity: null, memberCorrection: null, draft: null, draftMembers: [], draftStep: 1, draftEditing: null, memberProfiles: {}, counts: [], count: null, members: [], expenses: [], settlements: [], detailLoading: { count: false, members: false, expenses: false, settlements: false, failed: false }, categories: [], categoriesReady: false, merchants: [], editing: null, memberEditing: null, categoryEditing: null, categoryEmoji: "🧾", selectedExpense: null, selectedSettlement: null, homeTab: "active", toastTimer: null };
@@ -19,7 +24,7 @@ let settingsPanel = "hub";
 let emojiPickerPromise = null;
 let maintenanceGeneration = -1;
 
-function on(el, event, fn) { el && el.addEventListener(event, fn); }
+function on(el, event, fn, options) { el && el.addEventListener(event, fn, options); }
 function stop(group) {
   unsubscribers[group].forEach((fn) => fn && fn()); unsubscribers[group] = [];
 }
@@ -291,7 +296,7 @@ function renderHome() {
   });
   const list = $("#countList"); list.replaceChildren();
   const counts = state.counts.filter((count) => (count.status || "active") === state.homeTab);
-  $("#newCountButton").hidden = state.homeTab === "archived" || !counts.length;
+  $("#newCountButton").hidden = state.homeTab === "archived";
   if (state.homeLoading.failed) {
     list.innerHTML = '<section class="empty-state"><strong>No pudimos cargar tus Counts.</strong><span>Revisá tu conexión y recargá para reintentar.</span></section>';
     return;
@@ -311,8 +316,7 @@ function renderHome() {
     }
     list.innerHTML = state.homeTab === "archived"
       ? '<section class="empty-state"><strong>No tenés Counts archivados todavía.</strong><span>Cuando termines de usar un Count y su balance esté en cero, vas a poder archivarlo.</span></section>'
-      : '<section class="empty-state"><strong>Todavía no tenés ningún Count.</strong><span>Creá uno para empezar a dividir gastos.</span><button class="primary-button" id="emptyCreateButton" type="button">Crear Count</button></section>';
-    on($("#emptyCreateButton"), "click", openCountModal);
+      : '<section class="empty-state"><strong>Todavía no tenés ningún Count.</strong><span>Creá uno para empezar a dividir gastos.</span></section>';
     if (state.homeLoading.membershipsReady) afterPaint(() => { startupMark("homeReady", { count: 0 }); scheduleMaintenance(state.user, state.generation); });
     return;
   }
@@ -320,7 +324,7 @@ function renderHome() {
     const card = document.createElement("button");
     card.type = "button"; card.className = "project-card";
     const context = count.status === "archived" ? '<span class="archive-badge">Archivado</span>' : esc(count.primaryCurrency || count.defaultCurrency || DEFAULT_CURRENCY);
-    card.innerHTML = '<span><strong>' + esc(count.name) + '</strong><small>' + context + '</small></span><span class="chevron">›</span>';
+    card.innerHTML = '<span class="project-icon" aria-hidden="true">' + esc(count.emoji || DEFAULT_COUNT_EMOJI) + '</span><span class="project-copy"><strong>' + esc(count.name) + '</strong><small>' + context + '</small></span><span class="chevron" aria-hidden="true">›</span>';
     on(card, "click", () => openCount(count.id)); list.append(card);
   });
   if (state.homeLoading.pendingCountIds.length || state.homeLoading.countErrors.length) {
@@ -364,6 +368,7 @@ function detailError(exception) {
 function renderDetail() {
   if (!state.count) return;
   $("#countTitle").textContent = state.count.name;
+  $(".count-hero-icon").textContent = state.count.emoji || DEFAULT_COUNT_EMOJI;
   $("#countTitle").setAttribute("aria-label", "Nombre completo del Count: " + state.count.name);
   $("#countTitle").title = state.count.name;
   const members = activeMembers();
@@ -390,15 +395,24 @@ function renderExpenses() {
   const myPaid = Object.values(all.reduce((groups, expense) => { const paid = expensePaidAmount(expense, myMemberId); if (paid) groups[expense.currency] = (groups[expense.currency] || 0) + paid; return groups; }, {})).length ? Object.entries(all.reduce((groups, expense) => { const paid = expensePaidAmount(expense, myMemberId); if (paid) groups[expense.currency] = (groups[expense.currency] || 0) + paid; return groups; }, {})) : [];
   $("#totalCards").innerHTML = '<article><span>Vos pagaste</span><strong>' + (myPaid.length ? myPaid.map(([currency, amount]) => formatMoney(amount, currency)).join(" · ") : formatMoney(0, state.count?.primaryCurrency || DEFAULT_CURRENCY)) + '</strong></article><article><span>Total del Count</span><strong>' + moneyGroups(all) + "</strong></article>";
   const list = $("#expenseList"); list.replaceChildren();
-  const items = all.sort((a, b) => dateISO(b.expenseDate).localeCompare(dateISO(a.expenseDate)));
+  const items = all.slice().sort((a, b) => dateISO(b.expenseDate).localeCompare(dateISO(a.expenseDate)));
   if (!items.length) {
     list.innerHTML = '<section class="empty-state"><strong>Todavía no hay gastos.</strong><span>Agregá el primer gasto compartido.</span></section>';
     return;
   }
+  let previousDate = null;
   items.forEach((expense) => {
+    const day = dateISO(expense.expenseDate);
+    if (day !== previousDate) {
+      const heading = document.createElement("h2");
+      heading.className = "expense-date-heading";
+      heading.textContent = prettyDate(expense.expenseDate);
+      list.append(heading);
+      previousDate = day;
+    }
     const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
     const card = document.createElement("button"); card.className = "expense-card"; card.type = "button";
-    card.innerHTML = '<span class="expense-icon" aria-hidden="true">' + esc(category.emoji) + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>Pagó ' + esc(expensePayerNames(expense)) + " · " + prettyDate(expense.expenseDate) + '</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + "</span>";
+    card.innerHTML = '<span class="expense-icon" aria-hidden="true">' + esc(category.emoji) + '</span><span class="expense-copy"><strong>' + esc(expense.title) + '</strong><small>Pagó ' + esc(expensePayerNames(expense)) + '</small></span><span class="expense-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</span>';
     on(card, "click", () => openExpenseDetail(expense)); list.append(card);
   });
 }
@@ -517,6 +531,19 @@ function renderSettings() {
     row.innerHTML = '<span>' + esc(currency.symbol) + '</span><span><strong>' + esc(currency.code) + '</strong><small>' + esc(currency.name) + '</small></span><span class="status-tag">Activa</span>';
     currencies.append(row);
   });
+  const enabledCodes = state.profile?.enabledCurrencies || [DEFAULT_CURRENCY];
+  currencies.replaceChildren();
+  enabledCodes.forEach((code) => {
+    const currency = CURRENCIES[code]; if (!currency) return;
+    const row = document.createElement("button"); row.type = "button"; row.className = "settings-row currency-row";
+    const label = code === state.profile?.defaultCurrency ? "Predeterminada" : "Activa";
+    row.innerHTML = '<span>' + currencyFlag(code) + '</span><span><strong>' + esc(code) + '</strong><small>' + esc(currency.name) + '</small></span><span class="status-tag">' + label + '</span>';
+    on(row, "click", () => openMenu({ anchor: row, container: document.body, items: [{ id: "default", label: "Usar como predeterminada", checked: code === state.profile?.defaultCurrency }, { id: "remove", label: "Quitar" }], onSelect: async (item) => {
+      if (item.id === "default") { await updateUserSettings(state.user.uid, { defaultCurrency: code }); state.profile = { ...state.profile, defaultCurrency: code }; renderSettings(); }
+      if (item.id === "remove") { if (enabledCodes.length === 1) return showToast("Mantené al menos una moneda."); const next = enabledCodes.filter((itemCode) => itemCode !== code); const data = { enabledCurrencies: next }; if (state.profile?.defaultCurrency === code) data.defaultCurrency = next[0]; await updateUserSettings(state.user.uid, data); state.profile = { ...state.profile, ...data }; renderSettings(); }
+    } }));
+    currencies.append(row);
+  });
   if (!currencies.children.length) currencies.innerHTML = '<div class="empty-category-row">No hay monedas activas.</div>';
   const categories = $("#categoryList"); categories.replaceChildren();
   if (!state.categoriesReady) {
@@ -528,9 +555,10 @@ function renderSettings() {
   if (!active.length) {
     categories.innerHTML = '<div class="empty-category-row">No hay categorías activas.</div>';
   } else active.forEach((category) => {
-      const row = document.createElement("button"); row.type = "button"; row.className = "settings-row category-row category-row-action";
-      row.innerHTML = '<span>' + esc(categoryEmoji(category)) + '</span><span><strong>' + esc(category.name) + '</strong></span><span class="chevron">›</span>';
-      on(row, "click", () => openCategoryModal(category));
+      const editable = isAdmin() || category.createdBy === state.user.uid;
+      const row = document.createElement(editable ? "button" : "article"); row.type = editable ? "button" : undefined; row.className = "settings-row category-row" + (editable ? " category-row-action" : "");
+      row.innerHTML = '<span>' + esc(categoryEmoji(category)) + '</span><span><strong>' + esc(category.name) + '</strong></span>' + (editable ? '<span class="chevron">›</span>' : '<span class="status-tag">Solo lectura</span>');
+      if (editable) on(row, "click", () => openCategoryModal(category));
       categories.append(row);
     });
   renderAdmin();
@@ -539,21 +567,28 @@ function renderSettings() {
 function openCurrencyModal() {
   const enabled = new Set(state.profile?.enabledCurrencies || [DEFAULT_CURRENCY]);
   const list = $("#currencyOptionsList"); list.replaceChildren();
-  Object.values(CURRENCIES).filter((currency) => !enabled.has(currency.code)).forEach((currency) => {
+  const search = $("#currencySearch"); if (search) search.value = "";
+  const render = () => {
+    list.replaceChildren(); const needle = normalizeText(search?.value || "");
+    const choices = Object.values(CURRENCIES).filter((currency) => !enabled.has(currency.code) && (!needle || normalizeText(currency.code + " " + currency.name).includes(needle)));
+    const ordered = [...choices].sort((a, b) => (POPULAR_CURRENCIES.includes(a.code) ? -1 : 1) - (POPULAR_CURRENCIES.includes(b.code) ? -1 : 1) || a.name.localeCompare(b.name, "es"));
+    ordered.forEach((currency) => {
     const row = document.createElement("button"); row.type = "button"; row.className = "settings-row currency-row currency-option-row";
-    row.innerHTML = '<span>' + esc(currency.symbol) + '</span><span><strong>' + esc(currency.code) + '</strong><small>' + esc(currency.name) + '</small></span><span class="chevron">›</span>';
+    row.innerHTML = '<span>' + currencyFlag(currency.code) + '</span><span><strong>' + esc(currency.name) + '</strong><small>' + esc(currency.code) + '</small></span><span class="chevron">›</span>';
     on(row, "click", async () => {
       row.disabled = true;
       try {
-        const next = [...enabled, currency.code];
+        if (enabled.size >= 20) { showToast("Podés tener hasta 20 monedas"); return; } const next = [...enabled, currency.code];
         await updateUserSettings(state.user.uid, { enabledCurrencies: next });
         state.profile = { ...state.profile, enabledCurrencies: next };
         dialogs.currencyModal.close(); renderSettings();
       } catch (exception) { console.error(exception); row.disabled = false; showToast("No pudimos agregar la moneda."); }
     });
     list.append(row);
-  });
+    });
   if (!list.children.length) list.innerHTML = '<div class="empty-category-row">Todas las monedas disponibles ya están agregadas.</div>';
+  };
+  on(search, "input", render); render();
   dialogs.currencyModal.showModal();
 }
 
@@ -648,9 +683,11 @@ function closeEmojiPicker() {
   document.querySelector(".emoji-picker-popover")?.remove();
 }
 
-async function openEmojiPicker() {
+async function openEmojiPicker(target = "category") {
   closeEmojiPicker();
-  const trigger = $("#emojiPickerButton");
+  const isCount = target === "count";
+  const dialog = isCount ? dialogs.countModal : dialogs.categoryModal;
+  const trigger = $(isCount ? "#countEmojiButton" : "#emojiPickerButton");
   // iOS can keep the category name keyboard open while the picker is loading.
   // Blur the field before creating the picker so the keyboard cannot cover it.
   document.activeElement?.blur?.();
@@ -665,19 +702,28 @@ async function openEmojiPicker() {
     console.error(exception);
     return;
   } finally { trigger.disabled = false; }
+  if (!dialog.open) return;
   const popover = document.createElement("div");
   popover.className = "emoji-picker-popover";
   const picker = document.createElement("emoji-picker");
   picker.addEventListener("emoji-click", (event) => {
-    state.categoryEmoji = event.detail?.unicode || event.detail?.emoji?.unicode || event.detail?.emoji || "🧾";
-    $("#categoryEmojiPreview").textContent = state.categoryEmoji;
+    const emoji = event.detail?.unicode || event.detail?.emoji?.unicode || event.detail?.emoji || "🧾";
+    if (isCount) {
+      if (!state.draft) return;
+      state.draft.emoji = emoji;
+      $("#countEmojiPreview").textContent = emoji;
+    } else {
+      state.categoryEmoji = emoji;
+      $("#categoryEmojiPreview").textContent = emoji;
+    }
     closeEmojiPicker();
   });
   popover.append(picker);
   // Keep the picker inside the dialog's top layer. Appending it to body puts
   // it behind dialog::backdrop on iOS, making the picker look blurred and
   // preventing taps/typing from reaching it.
-  dialogs.categoryModal.append(popover);
+  if (isCount) dialogs.countModal.append(popover);
+  else dialogs.categoryModal.append(popover);
 }
 
 async function deleteCategory(category) {
@@ -697,17 +743,6 @@ async function deleteCategory(category) {
 function draftMemberName(member) {
   return member.type === "manual" ? member.alias : state.profile?.alias || state.profile?.googleDisplayName || state.user?.displayName || state.user?.email || "Vos";
 }
-function draftInviteUrl() {
-  const url = new URL(location.href); url.pathname = "/j/" + state.draft.draftInviteToken; url.search = ""; url.hash = ""; return url.toString();
-}
-function renderCurrencyChoices(container, name, selected) {
-  container.replaceChildren();
-  Object.values(CURRENCIES).forEach((currency) => {
-    const row = document.createElement("label"); row.className = "currency-choice";
-    row.innerHTML = '<input type="radio" name="' + name + '" value="' + currency.code + '" ' + (currency.code === selected ? "checked" : "") + ' /><span><strong>' + currency.code + '</strong><small>' + esc(currency.name) + '</small></span>';
-    container.append(row);
-  });
-}
 function renderDraftMembers() {
   const list = $("#draftMemberList"); list.replaceChildren();
   state.draftMembers.filter((member) => member.active).forEach((member) => {
@@ -719,28 +754,24 @@ function renderDraftMembers() {
       const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Editar"; on(edit, "click", () => openDraftMemberModal(member));
       const remove = document.createElement("button"); remove.type = "button"; remove.className = "draft-remove-button"; remove.textContent = "Quitar"; on(remove, "click", () => removeDraftMember(member));
       actions.append(edit, remove); row.append(actions);
-    } else row.insertAdjacentHTML("beforeend", '<span class="status-tag">Creador</span>');
+    } else row.insertAdjacentHTML("beforeend", '<span class="count-owner-tag">Vos</span>');
     list.append(row);
   });
 }
-function renderCountWizard() {
+function renderCountForm() {
   if (!state.draft) return;
-  const step = state.draftStep;
-  $("#countStepLabel").textContent = "Paso " + step + " de 4";
-  document.querySelectorAll("[data-wizard-step]").forEach((item) => item.classList.toggle("is-active", Number(item.dataset.wizardStep) <= step));
-  document.querySelectorAll("[data-wizard-panel]").forEach((panel) => { panel.hidden = Number(panel.dataset.wizardPanel) !== step; });
-  $("#countBackButton").hidden = step === 1;
-  $("#countNextButton").hidden = step === 4;
-  $("#countCreateButton").hidden = step !== 4;
-  if (step === 1) $("#countName").value = state.draft.name || "";
-  if (step === 2) { renderDraftMembers(); $("#draftInviteLink").value = draftInviteUrl(); $("#draftInviteStatus").hidden = true; }
-  if (step === 3) renderCurrencyChoices($("#draftCurrencyChoices"), "draftCurrency", state.draft.primaryCurrency || state.profile?.defaultCurrency || DEFAULT_CURRENCY);
-  if (step === 4) {
-    $("#countConfirmSummary").innerHTML = '<div><dt>Nombre</dt><dd>' + esc(state.draft.name) + '</dd></div><div><dt>Participantes</dt><dd>' + state.draftMembers.filter((member) => member.active).map(draftMemberName).map(esc).join(", ") + '</dd></div><div><dt>Moneda principal</dt><dd>' + esc(state.draft.primaryCurrency || "—") + '</dd></div>';
-    $("#countConfirmInvite").value = draftInviteUrl();
-  }
+  $("#countName").value = state.draft.name || "";
+  $("#countEmojiPreview").textContent = state.draft.emoji || DEFAULT_COUNT_EMOJI;
+  $("#draftMemberName").value = "";
+  const enabled = state.profile?.enabledCurrencies || [DEFAULT_CURRENCY];
+  putOptions($("#countCurrency"), enabled.filter((code) => CURRENCIES[code]).map((code) => ({ id: code, name: currencyFlag(code) + " " + CURRENCIES[code].name + " (" + code + ")" })), state.draft.primaryCurrency || state.profile?.defaultCurrency || enabled[0]);
+  renderDraftMembers();
 }
-async function refreshDraftMembers() { state.draftMembers = await getDraftMembers(state.draft.id); renderCountWizard(); }
+async function refreshDraftMembers() {
+  state.draftMembers = await getDraftMembers(state.draft.id);
+  renderDraftMembers();
+  if ($("#countCreateButton").disabled) setCountFormBusy(true);
+}
 async function openCountModal() {
   if (!state.user) return;
   const trigger = $("#newCountButton"); if (trigger) trigger.disabled = true;
@@ -748,26 +779,27 @@ async function openCountModal() {
     state.draft = await startCountDraft({ user: state.user, profileAlias: state.profile?.alias });
     state.draft.primaryCurrency = state.profile?.defaultCurrency || DEFAULT_CURRENCY;
     state.draftMembers = await getDraftMembers(state.draft.id);
-    state.draftStep = 1; $("#countError").hidden = true; renderCountWizard(); dialogs.countModal.showModal();
+    $("#countError").hidden = true; renderCountForm(); dialogs.countModal.showModal();
+    $("#countModalTitle").focus({ preventScroll: true });
   } catch (exception) { console.error(exception); showToast("No pudimos iniciar el nuevo Count."); }
   finally { if (trigger) trigger.disabled = false; }
 }
-async function advanceCountWizard() {
-  if (!state.draft) return;
-  $("#countError").hidden = true;
-  try {
-    if (state.draftStep === 1) Object.assign(state.draft, await saveDraftName({ countId: state.draft.id, name: $("#countName").value, actor: state.user, existingCounts: state.counts }));
-    if (state.draftStep === 3) {
-      const currency = document.querySelector("[name='draftCurrency']:checked")?.value;
-      await saveDraftCurrency({ countId: state.draft.id, currency, actor: state.user }); state.draft.primaryCurrency = currency;
-    }
-    state.draftStep += 1; renderCountWizard();
-  } catch (exception) { error($("#countError"), exception, "Revisá los datos para continuar."); }
+async function savePendingDraftMember() {
+  const input = $("#draftMemberName");
+  const alias = input.value.trim();
+  if (!alias) return;
+  await createDraftManualMember({ countId: state.draft.id, alias, actor: state.user });
+  input.value = "";
+  await refreshDraftMembers();
 }
-function backCountWizard() { if (state.draft && state.draftStep > 1) { state.draftStep -= 1; $("#countError").hidden = true; renderCountWizard(); } }
-async function copyDraftInvite(input, status) {
-  try { await navigator.clipboard.writeText(input.value); if (status) { status.textContent = "Link copiado."; status.hidden = false; } }
-  catch { if (status) { status.textContent = "Copialo manualmente desde el campo."; status.hidden = false; } }
+async function addDraftParticipant() {
+  if (!state.draft || $("#countCreateButton").disabled || $("#draftAddMemberButton").disabled) return;
+  if (!$("#draftMemberName").value.trim()) { $("#draftMemberName").focus(); return; }
+  $("#countError").hidden = true;
+  setCountFormBusy(true);
+  try { await savePendingDraftMember(); }
+  catch (exception) { error($("#countError"), exception, "No pudimos agregar al participante."); }
+  finally { setCountFormBusy(false); $("#draftMemberName").focus(); }
 }
 function openDraftMemberModal(member = null) {
   state.draftEditing = member; const form = $("#draftMemberForm"); form.reset();
@@ -775,24 +807,40 @@ function openDraftMemberModal(member = null) {
   form.elements.alias.value = member?.alias || ""; $("#draftMemberError").hidden = true; dialogs.draftMemberModal.showModal();
 }
 async function removeDraftMember(member) {
+  if ($("#countCreateButton").disabled) return;
+  setCountFormBusy(true);
   try { await removeDraftManualMember({ countId: state.draft.id, member, actor: state.user }); await refreshDraftMembers(); }
   catch (exception) { error($("#countError"), exception, "No pudimos quitar el integrante."); }
+  finally { setCountFormBusy(false); }
 }
 async function cancelCountWizard() {
+  if ($("#countCreateButton").disabled) return;
+  setCountFormBusy(true);
+  closeEmojiPicker();
   if (state.draft && state.user) {
     try { await clearCurrentDraft(state.user, { includeRecent: true }); }
-    catch (exception) { console.error(exception); showToast("No pudimos limpiar el borrador."); return; }
+    catch (exception) { console.error(exception); showToast("No pudimos limpiar el borrador."); setCountFormBusy(false); return; }
   }
   state.draft = null; state.draftMembers = []; dialogs.countModal.close();
+  setCountFormBusy(false);
 }
-async function finalizeCountWizard() {
-  if (!state.draft) return;
+function setCountFormBusy(busy) {
+  $("#countForm").querySelectorAll("button, input, select").forEach((control) => { control.disabled = busy; });
+}
+async function finalizeCountForm() {
+  if (!state.draft || $("#countCreateButton").disabled) return;
   const button = $("#countCreateButton"); $("#countError").hidden = true; setBusy(button, true, "Crear Count", "Creando Count…");
+  setCountFormBusy(true);
   try {
+    Object.assign(state.draft, await saveDraftName({ countId: state.draft.id, name: $("#countName").value, emoji: state.draft.emoji, actor: state.user, existingCounts: state.counts }));
+    const currency = $("#countCurrency").value;
+    await saveDraftCurrency({ countId: state.draft.id, currency, actor: state.user });
+    state.draft.primaryCurrency = currency;
+    await savePendingDraftMember();
     const id = await finalizeCountDraft({ countId: state.draft.id, actor: state.user });
-    state.draft = null; state.draftMembers = []; dialogs.countModal.close(); openCount(id);
+    state.draft = null; state.draftMembers = []; closeEmojiPicker(); dialogs.countModal.close(); openCount(id);
   } catch (exception) { error($("#countError"), exception, "No pudimos crear el Count. Intentá nuevamente."); }
-  finally { setBusy(button, false, "Crear Count"); }
+  finally { setBusy(button, false, "Crear Count"); setCountFormBusy(false); }
 }
 function openExpenseModal(expense) {
   if (isReadOnly()) return;
@@ -826,39 +874,47 @@ function openExpenseModal(expense) {
     checks.append(row);
   });
   $("#multiplePayersToggle").checked = Boolean(expense?.payerShares);
+  $("#payerAllocationList").replaceChildren();
   renderPayerAllocations(members, expense);
   const form = $("#expenseForm");
   form.elements.title.value = expense?.title || ""; form.elements.merchant.value = expense?.merchantNameSnapshot || "";
   form.elements.amount.value = expense ? formatMoneyPlain(expense.amountMinor) : ""; form.elements.expenseDate.value = expense ? dateISO(expense.expenseDate) : localDateISO(); form.elements.notes.value = expense?.notes || "";
-  renderMerchantOptions(); updateSplitPreview(); dialogs.expenseModal.showModal();
+  $("#expenseExtras").open = Boolean(expense?.merchantNameSnapshot || expense?.notes);
+  renderMerchantOptions(); updateSplitPreview(); refreshExpensePills();
+  dialogs.expenseModal.hidden = false;
+  dialogs.expenseModal.showModal();
+  $("#expenseModalTitle").focus({ preventScroll: true });
 }
-function closeExpenseModal() {
-  const dialog = dialogs.expenseModal;
+function closeExpenseDialog(dialog) {
   if (!dialog?.open) return;
-  // iOS can retain the dialog top-layer compositing while an input keeps focus.
-  // Release focus before closing so the header, status-bar area and safe-area
-  // inset are painted normally again on the next frame.
   document.activeElement?.blur?.();
   dialog.close();
-  requestAnimationFrame(() => {
-    if (!dialog.open) document.body.offsetHeight;
-  });
+  // Drop the closed top-layer surface so iOS does not keep its backdrop cached.
+  dialog.hidden = true;
 }
+function closeExpenseModal() { closeExpenseDialog(dialogs.expenseModal); }
+function refreshExpensePills() {
+  const category = categoryFor($("#expenseCategory")?.value); if ($("#categoryButton")) $("#categoryButton").textContent = categoryEmoji(category);
+  const payer = state.members.find((member) => member.id === $("#expensePayer")?.value); if ($("#payerButton")) $("#payerButton").textContent = payer ? memberName(payer) + (payer.userId === state.user?.uid ? " (Yo)" : "") + "⌄" : "Elegí quién pagó⌄";
+  const currency = CURRENCIES[$("#expenseCurrency")?.value || state.count?.primaryCurrency || DEFAULT_CURRENCY]; if ($("#currencyPill") && currency) $("#currencyPill").textContent = currency.symbol + "⌄";
+}
+on($("#categoryButton"), "click", () => openMenu({ anchor: $("#categoryButton"), container: dialogs.expenseModal, items: activeCategories().map((category) => ({ id: category.id, label: category.name, icon: categoryEmoji(category), checked: category.id === $("#expenseCategory").value })), onSelect: (item) => { $("#expenseCategory").value = item.id; $("#expenseCategory").dispatchEvent(new Event("change")); refreshExpensePills(); } }));
+on($("#payerButton"), "click", () => openMenu({ anchor: $("#payerButton"), container: dialogs.expenseModal, items: activeMembers().map((member) => ({ id: member.id, label: memberName(member) + (member.userId === state.user?.uid ? " (Yo)" : ""), checked: member.id === $("#expensePayer").value })), footer: { id: "multiple", label: "Varias personas…" }, onSelect: (item) => { if (item.id === "multiple") { $("#multiplePayersToggle").checked = true; renderPayerAllocations(state.members); } else { $("#expensePayer").value = item.id; $("#multiplePayersToggle").checked = false; renderPayerAllocations(state.members); } refreshExpensePills(); } }));
 function renderPayerAllocations(members, expense = state.editing) {
   const enabled = $("#multiplePayersToggle").checked;
   $("#payerAllocationSection").hidden = !enabled;
-  const list = $("#payerAllocationList"); list.replaceChildren();
   if (!enabled) return;
-  const currentShares = collectPayerShares();
-  const payerShares = expense?.payerShares || (Object.keys(currentShares).length ? currentShares : {});
+  const currentValues = new Map([...document.querySelectorAll("[data-payer-member]")].map((input) => [input.dataset.payerMember, input.value]));
+  const list = $("#payerAllocationList"); list.replaceChildren();
+  const payerShares = expense?.payerShares || {};
   const participantIds = [...document.querySelectorAll("[name='participant']:checked")].map((input) => input.value);
   const membersById = new Map(members.map((member) => [member.id, member]));
   participantIds.forEach((memberId) => {
     const member = membersById.get(memberId); if (!member) return;
     const label = document.createElement("label"); label.className = "payer-allocation-row";
     const share = payerShares[memberId];
-    const value = Number.isSafeInteger(share) && share >= 0 ? formatMoneyPlain(share) : "";
-    label.innerHTML = '<span>' + esc(memberName(member)) + '</span><input type="text" inputmode="decimal" data-payer-member="' + esc(memberId) + '" value="' + value + '" />';
+    const value = currentValues.has(memberId) ? currentValues.get(memberId) : Number.isSafeInteger(share) && share >= 0 ? formatMoneyPlain(share) : "";
+    label.innerHTML = '<span>' + esc(memberName(member)) + '</span><input type="text" inputmode="decimal" data-payer-member="' + esc(memberId) + '" value="' + esc(value) + '" />';
     list.append(label);
   });
   updatePayerAllocationTotal();
@@ -874,42 +930,57 @@ function collectPayerShares() {
 function updatePayerAllocationTotal() {
   const values = Object.values(collectPayerShares());
   const total = values.every((value) => Number.isSafeInteger(value)) ? values.reduce((sum, value) => sum + value, 0) : NaN;
-  const amount = tryParseMoney($("#expenseForm").elements.amount.value);
+  const amount = readAmount($("#expenseForm").elements.amount.value);
   $("#payerAllocationTotal").textContent = Number.isSafeInteger(total) ? "Pagado: " + formatMoney(total, $("#expenseCurrency").value) + (amount.ok && total !== amount.value ? " · revisá el total" : "") : "Ingresá importes válidos";
 }
 function renderMerchantOptions() { const list = $("#merchantOptions"); if (!list) return; list.replaceChildren(); state.merchants.slice(0, 50).forEach((merchant) => list.append(new Option(merchant.name))); }
 function updateSplitPreview() {
   const selected = document.querySelectorAll("[name='participant']:checked").length;
-  const parsed = tryParseMoney($("#expenseForm").elements.amount.value);
+  const parsed = readAmount($("#expenseForm").elements.amount.value);
   if (!selected) $("#splitPreview").textContent = "Elegí al menos una persona";
   else if (!parsed.ok) $("#splitPreview").textContent = "Ingresá un monto válido";
   else $("#splitPreview").textContent = formatMoney(Math.floor(parsed.value / selected), $("#expenseCurrency").value) + (parsed.value % selected ? " cada uno · se reparte 1 centavo de diferencia" : " cada uno");
 }
+function readAmount(value) { return hasOperator(value) ? (() => { try { return { ok: true, value: evaluateAmountExpression(value) }; } catch (error) { return { ok: false, error }; } })() : tryParseMoney(value); }
 function expenseDetailItems() {
   return activeExpenses().slice().sort((a, b) => dateISO(b.expenseDate).localeCompare(dateISO(a.expenseDate)));
 }
 function renderExpenseDetail(expense) {
   state.selectedExpense = expense;
-  const participants = expense.participantMemberIds.map(nameOf).map(esc).join(", ");
   const category = categoryDisplay(expense.categoryId, expense.categoryNameSnapshot);
   const items = expenseDetailItems();
   const index = items.findIndex((item) => item.id === expense.id);
   $("#expenseDetailPosition").textContent = items.length > 1 ? (index + 1) + " de " + items.length : "Detalle del gasto";
   $("#previousExpenseButton").disabled = index <= 0;
   $("#nextExpenseButton").disabled = index < 0 || index >= items.length - 1;
-  $("#expenseDetailContent").innerHTML = '<p class="eyebrow">' + esc(category.emoji) + " " + esc(category.name) + '</p><h2>' + esc(expense.title) + '</h2><p class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</p><dl class="details-list"><div><dt>Pagó</dt><dd>' + esc(expensePayerNames(expense)) + '</dd></div><div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot || "—") + '</dd></div><div><dt>Fecha</dt><dd>' + prettyDate(expense.expenseDate) + '</dd></div><div><dt>Dividido entre</dt><dd>' + participants + "</dd></div>" + (expense.notes ? "<div><dt>Notas</dt><dd>" + esc(expense.notes) + "</dd></div>" : "") + "</dl>";
+  const personRow = (memberId, amount) => {
+    const name = nameOf(memberId);
+    const mine = state.members.find((member) => member.id === memberId)?.userId === state.user?.uid;
+    return '<li class="expense-person"><span class="person-avatar" aria-hidden="true">' + esc(name.slice(0, 1).toUpperCase()) + '</span><span class="person-name"><strong>' + esc(name) + '</strong>' + (mine ? '<small>Vos</small>' : '') + '</span><strong class="person-amount">' + (Number.isSafeInteger(amount) ? formatMoney(amount, expense.currency) : '—') + '</strong></li>';
+  };
+  const payers = Object.entries(expense.payerShares || { [expense.payerMemberId]: expense.amountMinor }).filter(([, amount]) => amount > 0);
+  const participants = expense.participantMemberIds.map((id) => personRow(id, expense.participantShares?.[id])).join("");
+  $("#expenseDetailContent").innerHTML = '<div class="expense-hero"><span class="expense-hero-icon" aria-hidden="true">' + esc(category.emoji) + '</span><h2 tabindex="-1">' + esc(expense.title) + '</h2><p>' + prettyDate(expense.expenseDate) + ' · ' + esc(category.name) + '</p><strong class="expense-detail-amount">' + formatMoney(expense.amountMinor, expense.currency) + '</strong></div>'
+    + '<section class="expense-people-section expense-payers"><h3>' + (payers.length > 1 ? 'Pagaron' : 'Pagó') + '</h3><ul class="expense-people">' + payers.map(([id, amount]) => personRow(id, amount)).join('') + '</ul></section>'
+    + '<section class="expense-people-section"><h3>Dividido entre ' + expense.participantMemberIds.length + (expense.participantMemberIds.length === 1 ? ' persona' : ' personas') + '</h3><ul class="expense-people">' + participants + '</ul></section>'
+    + (expense.merchantNameSnapshot || expense.notes ? '<dl class="expense-notes">' + (expense.merchantNameSnapshot ? '<div><dt>Comercio</dt><dd>' + esc(expense.merchantNameSnapshot) + '</dd></div>' : '') + (expense.notes ? '<div><dt>Notas</dt><dd>' + esc(expense.notes) + '</dd></div>' : '') + '</dl>' : '');
 }
 function openExpenseDetail(expense) {
   renderExpenseDetail(expense);
   $("#editExpenseButton").hidden = isReadOnly();
   $("#deleteExpenseButton").hidden = isReadOnly();
+  dialogs.expenseDetailModal.hidden = false;
   dialogs.expenseDetailModal.showModal();
+  $("#expenseDetailContent h2").focus({ preventScroll: true });
 }
 function moveExpenseDetail(direction) {
   const items = expenseDetailItems();
   const index = items.findIndex((item) => item.id === state.selectedExpense?.id);
   const next = items[index + direction];
-  if (next) renderExpenseDetail(next);
+  if (next) {
+    renderExpenseDetail(next);
+    $("#expenseDetailModal .expense-detail-card").scrollTop = 0;
+  }
 }
 function openSettlementModal(suggestion) {
   if (isReadOnly()) return;
@@ -920,8 +991,9 @@ function openSettlementModal(suggestion) {
 }
 async function openInviteModal() {
   if (isReadOnly()) { showToast("Este Count está archivado y no acepta nuevos miembros."); return; }
-  $("#inviteLink").value = ""; $("#inviteStatus").hidden = true; dialogs.inviteModal.showModal();
+  $("#inviteLink").value = ""; $("#inviteCountName").textContent = state.count.name || "mi Count"; $("#inviteStatus").hidden = true; document.querySelectorAll("#whatsappInviteButton, #copyInviteButton, #shareInviteButton").forEach((button) => { button.disabled = true; }); dialogs.inviteModal.showModal();
   try { const token = await createInvite(state.count.id, state.user); const url = new URL(location.href); url.pathname = "/j/" + token; url.search = ""; url.hash = ""; $("#inviteLink").value = url.toString(); } catch (exception) { error($("#inviteStatus"), exception, "No pudimos crear el link."); }
+  document.querySelectorAll("#whatsappInviteButton, #copyInviteButton, #shareInviteButton").forEach((button) => { button.disabled = !$("#inviteLink").value; });
 }
 
 function openCountActions() {
@@ -1064,7 +1136,7 @@ document.querySelectorAll("[data-settings-panel]").forEach((button) => on(button
 document.querySelectorAll("[data-settings-home]").forEach((button) => on(button, "click", () => showSettingsPanel("hub")));
 installEdgeBack({
   target: $("#appShell"),
-  canStart: () => window.innerWidth < 640 && !$("#appShell").hidden && (state.screen === "settings" || state.screen === "detail" && activeDetailTab() === "expenses") && !document.querySelector("dialog[open]") ? state.screen : null,
+  canStart: () => window.innerWidth < 640 && !$("#appShell").hidden && state.screen === "settings" && !document.querySelector("dialog[open]") ? state.screen : null,
   isInteractive: (element) => {
     if (!(element instanceof Element)) return true;
     if (element.closest("button, a, input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return true;
@@ -1077,26 +1149,32 @@ installEdgeBack({
 });
 function activeDetailTab() { return document.querySelector(".tab.is-selected")?.dataset.tab || "expenses"; }
 function selectDetailTab(tabName) {
+  if ($("#detailScreen").contains(document.activeElement)) document.activeElement?.blur?.();
   document.querySelectorAll("[data-tab]").forEach((item) => {
     const selected = item.dataset.tab === tabName;
     item.classList.toggle("is-selected", selected);
     item.setAttribute("aria-selected", String(selected));
   });
   document.querySelectorAll(".tab-panel").forEach((item) => item.classList.toggle("is-active", item.id === tabName + "Panel"));
+  $("#detailScreen").scrollTop = 0;
 }
-installEdgeTabs({
-  target: $("#appShell"),
-  canStart: () => window.innerWidth < 640 && !$("#appShell").hidden && state.screen === "detail" && !document.querySelector("dialog[open]") ? state.screen : null,
+installSwipeTabs({
+  target: $("#detailScreen"),
+  canStart: () => window.innerWidth < 640 && state.screen === "detail" && !document.querySelector("dialog[open]") ? activeDetailTab() : null,
   isInteractive: (element) => {
     if (!(element instanceof Element)) return true;
-    return Boolean(element.closest("button, a, input, textarea, select, [contenteditable]:not([contenteditable='false'])"));
+    return Boolean(element.closest(".count-context-header, .tabs, a, input, textarea, select, [contenteditable]:not([contenteditable='false'])"));
   },
   onNext: () => { const index = ["expenses", "balances", "summary"].indexOf(activeDetailTab()); if (index < 2) selectDetailTab(["expenses", "balances", "summary"][index + 1]); },
   onPrevious: () => { const index = ["expenses", "balances", "summary"].indexOf(activeDetailTab()); if (index > 0) selectDetailTab(["expenses", "balances", "summary"][index - 1]); },
 });
 on($("#countTitle"), "click", () => { if (state.count?.name) showToast(state.count.name); });
-on($("#countCloseButton"), "click", cancelCountWizard); on($("#countCancelButton"), "click", cancelCountWizard); on($("#countBackButton"), "click", backCountWizard); on($("#countNextButton"), "click", advanceCountWizard); on($("#countCreateButton"), "click", finalizeCountWizard);
-on($("#draftAddMemberButton"), "click", () => openDraftMemberModal()); on($("#copyDraftInviteButton"), "click", () => copyDraftInvite($("#draftInviteLink"), $("#draftInviteStatus"))); on($("#copyConfirmInviteButton"), "click", () => copyDraftInvite($("#countConfirmInvite")));
+on($("#countCloseButton"), "click", cancelCountWizard);
+on($("#countForm"), "submit", (event) => { event.preventDefault(); finalizeCountForm(); });
+on($("#countEmojiButton"), "click", () => openEmojiPicker("count"));
+on(dialogs.countModal, "close", closeEmojiPicker);
+on($("#draftAddMemberButton"), "click", addDraftParticipant);
+on($("#draftMemberName"), "keydown", (event) => { if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); addDraftParticipant(); } });
 on($("#inviteNoneButton"), "click", () => chooseInviteIdentity());
 on($("#memberAddButton"), "click", () => dialogs.memberChoiceModal.showModal());
 on($("#inviteMemberChoice"), "click", () => { dialogs.memberChoiceModal.close(); dialogs.memberModal.close(); openInviteModal(); });
@@ -1113,17 +1191,24 @@ on($("#deleteCategoryModalButton"), "click", async () => {
   if (!category || !(await deleteCategory(category))) return;
   closeEmojiPicker(); dialogs.categoryModal.close();
 });
-on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.googleDisplayName || state.profile?.displayName || state.user?.displayName || ""; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
+on($("#accountButton"), "click", () => { $("#accountName").value = state.profile?.alias || state.profile?.googleDisplayName || state.profile?.displayName || state.user?.displayName || ""; $("#profileDisplayName").textContent = $("#accountName").value; $("#profileAvatar").textContent = $("#accountButton").textContent; $("#accountEmail").textContent = state.user.email || ""; $("#accountError").hidden = true; dialogs.accountModal.showModal(); });
 document.querySelectorAll("[data-close]").forEach((button) => on(button, "click", () => {
-  if (button.dataset.close === "expenseModal") closeExpenseModal();
+  if (["expenseModal", "expenseDetailModal"].includes(button.dataset.close)) closeExpenseDialog(dialogs[button.dataset.close]);
   else dialogs[button.dataset.close].close();
 }));
+for (const dialog of [dialogs.expenseModal, dialogs.expenseDetailModal]) {
+  on(dialog, "cancel", (event) => { event.preventDefault(); closeExpenseDialog(dialog); });
+}
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => {
   selectDetailTab(button.dataset.tab);
 }));
 document.querySelectorAll("[data-count-tab]").forEach((button) => on(button, "click", () => { state.homeTab = button.dataset.countTab; renderHome(); }));
 document.querySelectorAll("[data-admin-tab]").forEach((button) => on(button, "click", () => { state.adminTab = button.dataset.adminTab; renderAdmin(); }));
 on($("#expenseForm"), "input", () => { updateSplitPreview(); if ($("#multiplePayersToggle").checked) updatePayerAllocationTotal(); });
+on($("#expenseForm")?.elements.amount, "focus", () => { $("#amountOperators").hidden = false; });
+on($("#expenseForm")?.elements.amount, "blur", () => { const input = $("#expenseForm").elements.amount; if (hasOperator(input.value)) { const parsed = readAmount(input.value); if (parsed.ok) input.value = formatMoneyPlain(parsed.value); else $("#amountExpressionResult").textContent = parsed.error.message; } setTimeout(() => { $("#amountOperators").hidden = true; }, 0); });
+document.querySelectorAll("[data-amount-op]").forEach((button) => on(button, "pointerdown", (event) => { event.preventDefault(); const input = $("#expenseForm").elements.amount; const start = input.selectionStart ?? input.value.length; input.value = input.value.slice(0, start) + button.dataset.amountOp + input.value.slice(input.selectionEnd ?? start); input.focus(); input.setSelectionRange(start + 1, start + 1); }));
+on($("[data-amount-equals]"), "pointerdown", (event) => { event.preventDefault(); const input = $("#expenseForm").elements.amount; const parsed = readAmount(input.value); if (parsed.ok) { input.value = formatMoneyPlain(parsed.value); $("#amountExpressionResult").textContent = ""; } else $("#amountExpressionResult").textContent = parsed.error.message; input.focus(); });
 on($("#expenseForm"), "change", (event) => {
   updateSplitPreview();
   if (event.target.id === "multiplePayersToggle") renderPayerAllocations(state.members.filter((member) => member.active), state.editing);
@@ -1134,6 +1219,7 @@ on($("#previousExpenseButton"), "click", () => moveExpenseDetail(-1));
 on($("#nextExpenseButton"), "click", () => moveExpenseDetail(1));
 let expenseDetailTouch = null;
 on(dialogs.expenseDetailModal, "touchstart", (event) => {
+  expenseDetailTouch = null;
   if (event.touches.length !== 1 || event.target.closest?.("button, a, input, textarea, select")) return;
   const touch = event.touches[0];
   expenseDetailTouch = { x: touch.clientX, y: touch.clientY, id: touch.identifier };
@@ -1181,7 +1267,7 @@ on($("#categoryForm"), "submit", async (event) => {
   } finally { setBusy(button, false, "Guardar"); }
 });
 on($("#expenseForm"), "submit", async (event) => {
-  event.preventDefault(); const form = event.currentTarget; const participants = [...form.querySelectorAll("[name='participant']:checked")].map((input) => input.value); const parsedAmount = tryParseMoney(form.elements.amount.value); const amountMinor = parsedAmount.value; const payerShares = $("#multiplePayersToggle").checked ? collectPayerShares() : null; const button = $("#saveExpenseButton"); $("#expenseError").hidden = true;
+  event.preventDefault(); const form = event.currentTarget; const participants = [...form.querySelectorAll("[name='participant']:checked")].map((input) => input.value); const parsedAmount = readAmount(form.elements.amount.value); const amountMinor = parsedAmount.value; const payerShares = $("#multiplePayersToggle").checked ? collectPayerShares() : null; const button = $("#saveExpenseButton"); $("#expenseError").hidden = true;
   if (!participants.length || !parsedAmount.ok || amountMinor <= 0) { $("#expenseError").textContent = !participants.length ? "Elegí al menos una persona." : parsedAmount.error?.message || "El monto tiene que ser mayor a cero."; $("#expenseError").hidden = false; return; }
   if (payerShares) {
     const paidTotal = Object.values(payerShares).reduce((sum, value) => sum + value, 0);
@@ -1191,12 +1277,17 @@ on($("#expenseForm"), "submit", async (event) => {
   try {
     await saveExpense({ countId: state.count.id, form: { title: form.elements.title.value, merchantName: form.elements.merchant.value, amountMinor, currency: form.elements.currency.value, expenseDate: form.elements.expenseDate.value, categoryId: form.elements.category.value, payerMemberId: form.elements.payer.value, payerShares, participantMemberIds: participants, notes: form.elements.notes.value }, members: state.members, categories: state.categories, actor: state.user, expenseId: state.editing?.id, before: state.editing });
     closeExpenseModal();
-  } catch (exception) { error($("#expenseError"), exception, "No pudimos guardar el gasto. Revisá tu conexión e intentá nuevamente."); } finally { setBusy(button, false, state.editing ? "Guardar cambios" : "Guardar gasto"); }
+  } catch (exception) {
+    if (exception?.details?.reason === "STALE_STATE" || exception?.message?.includes("Alguien modificó")) {
+      showToast("Alguien modificó este gasto. Revisá los cambios y volvé a intentar.");
+      closeExpenseModal();
+    } else error($("#expenseError"), exception, "No pudimos guardar el gasto. Revisá tu conexión e intentá nuevamente.");
+  } finally { setBusy(button, false, state.editing ? "Guardar cambios" : "Guardar gasto"); }
 });
-on($("#editExpenseButton"), "click", () => { dialogs.expenseDetailModal.close(); openExpenseModal(state.selectedExpense); });
+on($("#editExpenseButton"), "click", () => { closeExpenseDialog(dialogs.expenseDetailModal); openExpenseModal(state.selectedExpense); });
 on($("#deleteExpenseButton"), "click", async () => {
   const expense = state.selectedExpense; if (!expense || !confirm("¿Seguro que querés eliminar este gasto?\n\n" + expense.title + "\n" + formatMoney(expense.amountMinor, expense.currency) + "\n\nEsta acción modificará los balances.")) return;
-  const button = $("#deleteExpenseButton"); setBusy(button, true, "Eliminar"); try { await softDeleteExpense({ countId: state.count.id, expense, actor: state.user }); dialogs.expenseDetailModal.close(); } catch (exception) { alert("No pudimos eliminar el gasto."); console.error(exception); } finally { setBusy(button, false, "Eliminar"); }
+  const button = $("#deleteExpenseButton"); setBusy(button, true, "Eliminar"); try { await softDeleteExpense({ countId: state.count.id, expense, actor: state.user }); closeExpenseDialog(dialogs.expenseDetailModal); } catch (exception) { alert("No pudimos eliminar el gasto."); console.error(exception); } finally { setBusy(button, false, "Eliminar"); }
 });
 on($("#confirmSettlementButton"), "click", async () => {
   const button = $("#confirmSettlementButton"); const label = button.textContent; setBusy(button, true, label);
@@ -1256,6 +1347,7 @@ on($("#confirmUnarchiveButton"), "click", async () => {
 });
 on($("#copyInviteButton"), "click", async () => { try { await navigator.clipboard.writeText($("#inviteLink").value); $("#inviteStatus").textContent = "Link copiado."; $("#inviteStatus").hidden = false; } catch { $("#inviteStatus").textContent = "Copialo manualmente desde el campo."; $("#inviteStatus").hidden = false; } });
 on($("#shareInviteButton"), "click", async () => { const url = $("#inviteLink").value; if (navigator.share) { try { await navigator.share({ title: state.count?.name || "TruchiCount", text: "Sumate a mi Count en TruchiCount", url }); } catch {} } else { await navigator.clipboard.writeText(url); $("#inviteStatus").textContent = "Link copiado."; $("#inviteStatus").hidden = false; } });
+on($("#whatsappInviteButton"), "click", () => window.open(buildWhatsAppUrl(state.count?.name || "mi Count", $("#inviteLink").value), "_blank"));
 on($("#accountForm"), "submit", async (event) => { event.preventDefault(); const name = $("#accountName").value.trim(); const button = event.submitter; if (!name) return; $("#accountError").hidden = true; setBusy(button, true, "Guardar"); try { await updateUserSettings(state.user.uid, { alias: name }); dialogs.accountModal.close(); } catch (exception) { error($("#accountError"), exception, "No pudimos guardar el alias."); } finally { setBusy(button, false, "Guardar"); } });
 on($("#logoutButton"), "click", async () => { if (confirm("¿Querés cerrar sesión?")) await signOutUser(); });
 on($("#nicknameForm"), "submit", async (event) => { event.preventDefault(); const name = $("#nicknameInput").value.trim(); const button = event.submitter; if (!name) return; $("#nicknameError").hidden = true; setBusy(button, true, "Continuar"); try { await saveInitialUserAlias(state.user.uid, name); dialogs.nicknameModal.close(); } catch (exception) { error($("#nicknameError"), exception, "No pudimos guardar tu nickname."); } finally { setBusy(button, false, "Continuar"); } });

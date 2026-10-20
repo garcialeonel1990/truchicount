@@ -16,11 +16,11 @@ import {
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 import { app } from "./firebase.js";
-import { calculateNetBalances } from "./balances.js";
-import { hasZeroBalance, pendingBalanceCurrencies } from "./integrity.js";
 import { recordSettlement } from "./settlement-client.js";
+import { runCommand } from "./command-client.js";
 import { joinInviteInTransaction } from "./invite-join.js";
-import { CURRENCIES, DEFAULT_CURRENCY, divideAmount, normalizeText } from "./money.js";
+import { CURRENCIES, DEFAULT_CURRENCY, normalizeText } from "./money.js";
+import { DEFAULT_COUNT_EMOJI, cleanCountEmoji } from "./count-metadata.js";
 
 const db = getFirestore(app);
 const toItem = (snapshot) => ({ id: snapshot.id, ...snapshot.data() });
@@ -226,7 +226,7 @@ export async function startCountDraft({ user, profileAlias = "" }) {
   const invite = doc(collection(db, "invites"));
   const batch = writeBatch(db);
   batch.set(count, {
-    name: "", normalizedName: "", status: "draft", primaryCurrency: null,
+    name: "", normalizedName: "", emoji: DEFAULT_COUNT_EMOJI, status: "draft", primaryCurrency: null,
     defaultCurrency: null, ownerUid: user.uid, createdBy: user.uid,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: user.uid,
     draftExpiresAt: draftExpiry(), draftInviteToken: invite.id, hasMovements: false, schemaVersion: 1,
@@ -237,11 +237,11 @@ export async function startCountDraft({ user, profileAlias = "" }) {
   batch.set(invite, { countId: count.id, status: "draft", createdBy: user.uid, createdAt: serverTimestamp(), usageCount: 0, lastUsedAt: null, manualCandidates: [] });
   batch.update(doc(db, "users", user.uid), { draftCountId: count.id, draftExpiresAt: draftExpiry(), updatedAt: serverTimestamp() });
   await batch.commit();
-  return { id: count.id, draftInviteToken: invite.id, status: "draft", name: "", normalizedName: "", primaryCurrency: null };
+  return { id: count.id, draftInviteToken: invite.id, status: "draft", name: "", normalizedName: "", emoji: DEFAULT_COUNT_EMOJI, primaryCurrency: null };
 }
 
-export async function saveDraftName({ countId, name, actor, existingCounts = [] }) {
-  const values = cleanCountName(name);
+export async function saveDraftName({ countId, name, emoji = DEFAULT_COUNT_EMOJI, actor, existingCounts = [] }) {
+  const values = { ...cleanCountName(name), emoji: cleanCountEmoji(emoji) };
   if (existingCounts.some((count) => count.id !== countId && count.status !== "draft" && (count.normalizedName || normalizeCountName(count.name)) === values.normalizedName)) throw new Error("Ya existe un Count con ese nombre.");
   const countRef = doc(db, "counts", countId);
   await runTransaction(db, async (transaction) => {
@@ -491,8 +491,6 @@ export async function saveExpense({ countId, form, members, categories, actor, e
   if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("Este Count no está disponible para cargar gastos.");
   const expectedCurrency = expenseId ? before?.currency : (countSnapshot.data().primaryCurrency || countSnapshot.data().defaultCurrency);
   const activeMembers = members.filter((member) => member.active);
-  // Existing movements are historical records: a removed payer or participant
-  // must remain valid while editing unrelated fields such as notes.
   const eligibleMembers = expenseId ? members : activeMembers;
   const payer = eligibleMembers.find((member) => member.id === form.payerMemberId);
   const participantMemberIds = [...new Set(form.participantMemberIds)];
@@ -505,47 +503,19 @@ export async function saveExpense({ countId, form, members, categories, actor, e
   const expenseDate = new Date(`${form.expenseDate}T12:00:00`);
   if (!title || title.length > 100 || merchantName.length > 100 || notes.length > 500 || !Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !CURRENCIES[form.currency] || form.currency !== expectedCurrency || Number.isNaN(expenseDate.getTime()) || !payer || !category || !participantMemberIds.length || participantMemberIds.some((memberId) => !eligibleMembers.some((member) => member.id === memberId))) throw new Error("Revisá los datos obligatorios del gasto.");
   const merchant = await upsertMerchant(merchantName, actor);
-  const ref = expenseId ? doc(db, "counts", countId, "expenses", expenseId) : doc(collection(db, "counts", countId, "expenses"));
-  const sameParticipants = before && participantMemberIds.length === (before.participantMemberIds || []).length
-    && participantMemberIds.every((memberId) => before.participantMemberIds.includes(memberId));
-  const preserveShares = Boolean(before?.participantShares && before.amountMinor === amountMinor && before.payerMemberId === form.payerMemberId && sameParticipants);
-  const participantShares = preserveShares ? before.participantShares : divideAmount(amountMinor, participantMemberIds, form.payerMemberId);
-  const splitTotal = Object.values(participantShares || {}).reduce((sum, share) => sum + share, 0);
-  if (!Object.values(participantShares || {}).every((share) => Number.isSafeInteger(share) && share >= 0) || splitTotal !== amountMinor) throw new Error("El reparto del gasto no coincide con el monto.");
-  const payerShares = form.payerShares && typeof form.payerShares === "object"
-    ? Object.fromEntries(Object.entries(form.payerShares).filter(([memberId]) => participantMemberIds.includes(memberId)))
-    : { [payer.id]: amountMinor };
-  const paidTotal = Object.values(payerShares).reduce((sum, paid) => sum + paid, 0);
-  if (!Object.keys(payerShares).length || !Object.values(payerShares).every((paid) => Number.isSafeInteger(paid) && paid >= 0) || paidTotal !== amountMinor) throw new Error("Los importes pagados deben sumar exactamente el monto del gasto.");
-  const primaryPayerId = Object.entries(payerShares).find(([, paid]) => paid > 0)?.[0] || payer.id;
-  const data = {
-    countId, title, merchantId: merchant.id, merchantNameSnapshot: merchant.name,
-    categoryId: category.id, categoryNameSnapshot: category.name,
-    amountMinor, currency: form.currency, expenseDate: Timestamp.fromDate(expenseDate),
-    payerMemberId: primaryPayerId,
-    payerShares,
-    participantMemberIds, participantShares, splitType: "equal", paymentMethod: null, notes,
-    status: "active", updatedAt: serverTimestamp(), updatedBy: actor.uid, schemaVersion: 1,
-  };
-  const batch = writeBatch(db);
-  if (expenseId) {
-    batch.update(ref, data);
-    audit(batch, { entityType: "expense", entityId: ref.id, countId, action: "update", actor, before, after: data });
-  } else {
-    batch.set(ref, { ...data, createdAt: serverTimestamp(), createdBy: actor.uid, deletedAt: null, deletedBy: null });
-    batch.update(doc(db, "counts", countId), { hasMovements: true, updatedAt: serverTimestamp(), updatedBy: actor.uid });
-    audit(batch, { entityType: "expense", entityId: ref.id, countId, action: "create", actor, after: data });
-  }
-  await batch.commit();
+  const payload = { title, merchantId: merchant.id, categoryId: category.id, amountMinor, expenseDate: form.expenseDate, payerShares: form.payerShares && typeof form.payerShares === "object" ? form.payerShares : { [payer.id]: amountMinor }, participantMemberIds, notes };
+  const type = expenseId ? "expense.update" : "expense.create";
+  return invokeCountCommand({ type, countId, payload: expenseId ? { ...payload, expenseId, expectedVersion: before?.version ?? 0 } : payload, uid: actor.uid });
 }
 
 export async function softDeleteExpense({ countId, expense, actor }) {
-  const ref = doc(db, "counts", countId, "expenses", expense.id);
-  const batch = writeBatch(db);
-  const after = { status: "deleted", deletedAt: serverTimestamp(), deletedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid };
-  batch.update(ref, after);
-  audit(batch, { entityType: "expense", entityId: expense.id, countId, action: "delete", actor, before: expense, after: { ...expense, status: "deleted" } });
-  await batch.commit();
+  return invokeCountCommand({ type: "expense.delete", countId, payload: { expenseId: expense.id, expectedVersion: expense.version ?? 0 }, uid: actor.uid });
+}
+
+async function invokeCountCommand({ type, countId, payload, uid }) {
+  const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/12.8.0/firebase-functions.js");
+  const invoke = httpsCallable(getFunctions(app, "us-central1"), "countCommandV1");
+  return runCommand({ type, countId, payload, uid, storage: localStorage, randomUUID: () => crypto.randomUUID(), invoke });
 }
 
 export async function createSettlement({ countId, suggestion, actor }) {
@@ -616,36 +586,7 @@ export async function updateManualMember({ countId, member, alias, actor }) {
 }
 
 export async function removeCountMember({ countId, member, actor }) {
-  const countRef = doc(db, "counts", countId);
-  const memberRef = doc(db, "counts", countId, "members", member.id);
-  return runTransaction(db, async (transaction) => {
-    const [countSnapshot, memberSnapshot, activeMembersSnapshot, expensesSnapshot, settlementsSnapshot, invitesSnapshot] = await Promise.all([
-      transaction.get(countRef), transaction.get(memberRef),
-      transaction.get(query(collection(db, "counts", countId, "members"), where("active", "==", true))),
-      transaction.get(collection(db, "counts", countId, "expenses")), transaction.get(collection(db, "counts", countId, "settlements")),
-      transaction.get(query(collection(db, "invites"), where("countId", "==", countId))),
-    ]);
-    if (!countSnapshot.exists() || countSnapshot.data().status !== "active") throw new Error("No podés modificar integrantes en un Count archivado.");
-    if (!memberSnapshot.exists() || !memberSnapshot.data().active) throw new Error("Este integrante ya no está activo.");
-    const activeMembers = activeMembersSnapshot.docs.map(toItem);
-    const currentMember = toItem(memberSnapshot);
-    const balances = calculateNetBalances(activeMembers, expensesSnapshot.docs.map(toItem), settlementsSnapshot.docs.map(toItem));
-    if (!hasZeroBalance(balances, currentMember.id)) throw new Error("Este integrante debe tener saldo $0 en todas las monedas para poder quitarlo.");
-    const registered = activeMembers.filter((item) => item.type === "registered");
-    if (currentMember.type === "registered" && registered.length < 2) throw new Error("No podés quitar al último usuario registrado del Count porque nadie podría administrarlo.");
-    const hasMovements = expensesSnapshot.docs.some((snapshot) => {
-      const expense = snapshot.data();
-      return expense.payerMemberId === currentMember.id || (expense.participantMemberIds || []).includes(currentMember.id);
-    }) || settlementsSnapshot.docs.some((snapshot) => {
-      const settlement = snapshot.data();
-      return settlement.fromMemberId === currentMember.id || settlement.toMemberId === currentMember.id;
-    });
-    if (hasMovements) transaction.update(memberRef, { active: false, removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
-    else transaction.delete(memberRef);
-    if (currentMember.type === "registered") transaction.update(doc(db, "memberships", `${countId}_${currentMember.userId}`), { status: "inactive", removedAt: serverTimestamp(), removedBy: actor.uid, updatedAt: serverTimestamp(), updatedBy: actor.uid });
-    syncActiveInviteCandidates(transaction, countId, invitesSnapshot.docs.map(toItem), activeMembers.filter((item) => item.id !== currentMember.id));
-    audit(transaction, { entityType: "member", entityId: memberRef.id, countId, action: "removeMember", actor, before: { type: currentMember.type, alias: currentMember.alias || null, active: true }, after: { active: false } });
-  });
+  return invokeCountCommand({ type: "member.remove", countId, payload: { memberId: member.id }, uid: actor.uid });
 }
 
 export async function correctMemberLink({ countId, member, targetManualId = null, actor }) {
@@ -714,68 +655,12 @@ export async function correctMemberLink({ countId, member, targetManualId = null
   });
 }
 
-function archiveSnapshot() {
-  return Object.fromEntries(Object.keys(CURRENCIES).map((currency) => [currency, 0]));
-}
-
 export async function archiveCount({ countId, actor }) {
-  const countRef = doc(db, "counts", countId);
-  const membershipRef = doc(db, "memberships", `${countId}_${actor.uid}`);
-  return runTransaction(db, async (transaction) => {
-    const [countSnapshot, membershipSnapshot, membersSnapshot, expensesSnapshot, settlementsSnapshot] = await Promise.all([
-      transaction.get(countRef), transaction.get(membershipRef),
-      transaction.get(query(collection(db, "counts", countId, "members"), where("active", "==", true))),
-      transaction.get(collection(db, "counts", countId, "expenses")), transaction.get(collection(db, "counts", countId, "settlements")),
-    ]);
-    if (!countSnapshot.exists()) throw new Error("Este Count ya no existe.");
-    if (!membershipSnapshot.exists() || membershipSnapshot.data().status !== "active") throw new Error("No tenés permisos para archivar este Count.");
-    const count = toItem(countSnapshot);
-    if (count.status === "archived") throw new Error("Este Count ya está archivado.");
-    const balances = calculateNetBalances(membersSnapshot.docs.map(toItem), expensesSnapshot.docs.map(toItem), settlementsSnapshot.docs.map(toItem));
-    const pendingCurrencies = pendingBalanceCurrencies(balances);
-    if (pendingCurrencies.length) {
-      const suffix = pendingCurrencies.length === 1 ? " en " + pendingCurrencies[0] : " en " + pendingCurrencies.join(", ");
-      throw new Error("No se pudo archivar el Count porque todavía hay saldo pendiente" + suffix + ".");
-    }
-    const actorName = actor.displayName || actor.email || "Usuario";
-    const changes = { status: "archived", archiveBalanceSnapshot: archiveSnapshot(), lastArchivedAt: serverTimestamp(), lastArchivedBy: actor.uid, lastArchivedByNameSnapshot: actorName, updatedAt: serverTimestamp(), updatedBy: actor.uid };
-    if (!count.firstArchivedAt) Object.assign(changes, { firstArchivedAt: serverTimestamp(), firstArchivedBy: actor.uid });
-    transaction.update(countRef, changes);
-    audit(transaction, { entityType: "count", entityId: countId, countId, action: "archiveCount", actor, before: { status: count.status || "active" }, after: { status: "archived" } });
-    return { balances, pendingCurrencies: [] };
-  });
+  return invokeCountCommand({ type: "count.archive", countId, payload: {}, uid: actor.uid });
 }
 
 export async function unarchiveCount({ countId, actor }) {
-  const countRef = doc(db, "counts", countId);
-  const membershipRef = doc(db, "memberships", `${countId}_${actor.uid}`);
-  return runTransaction(db, async (transaction) => {
-    const [countSnapshot, membershipSnapshot] = await Promise.all([
-      transaction.get(countRef),
-      transaction.get(membershipRef),
-    ]);
-    if (!countSnapshot.exists()) throw new Error("Este Count ya no existe.");
-    if (!membershipSnapshot.exists() || membershipSnapshot.data().status !== "active") throw new Error("No tenés permisos para desarchivar este Count.");
-    const count = toItem(countSnapshot);
-    if (count.status !== "archived") throw new Error("Este Count ya está activo.");
-
-    const actorName = actor.displayName || actor.email || "Usuario";
-    transaction.update(countRef, {
-      status: "active",
-      lastUnarchivedAt: serverTimestamp(),
-      lastUnarchivedBy: actor.uid,
-      lastUnarchivedByNameSnapshot: actorName,
-      updatedAt: serverTimestamp(),
-      updatedBy: actor.uid,
-    });
-    transaction.set(auditRef(), {
-      entityType: "count", entityId: countId, countId, action: "unarchiveCount",
-      actorUid: actor.uid, actorNameSnapshot: actorName,
-      before: { status: "archived" },
-      after: { status: "active" },
-      createdAt: serverTimestamp(),
-    });
-  });
+  return invokeCountCommand({ type: "count.unarchive", countId, payload: {}, uid: actor.uid });
 }
 
 export async function createInvite(countId, actor) {

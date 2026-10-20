@@ -38,23 +38,19 @@ export function installEdgeBack({ target, canStart, onBack, isInteractive }) {
   target.addEventListener("touchcancel", () => { gesture = null; }, options);
 }
 
-// Horizontal tab navigation for mobile detail views. A gesture that starts at
-// either screen edge is intentionally required so normal content scrolling is
-// left untouched.
-export function installEdgeTabs({ target, canStart, onNext, onPrevious, isInteractive }) {
+// One horizontal gesture handles the Count tabs. The caller decides which
+// controls should retain their own touch behavior.
+export function installSwipeTabs({ target, canStart, onNext, onPrevious, isInteractive }) {
   let gesture = null;
-  const options = { passive: true };
+  const passive = { passive: true };
 
   target.addEventListener("touchstart", (event) => {
     gesture = null;
-    const screen = canStart();
-    if (event.touches.length !== 1 || !screen || isInteractive(event.target)) return;
+    const tab = canStart();
+    if (event.touches.length !== 1 || !tab || isInteractive(event.target)) return;
     const touch = event.touches[0];
-    const width = target.clientWidth || window.innerWidth;
-    const edge = touch.clientX <= 48 ? "left" : touch.clientX >= width - 48 ? "right" : null;
-    if (!edge) return;
-    gesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, screen, edge };
-  }, options);
+    gesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, tab };
+  }, passive);
 
   target.addEventListener("touchmove", (event) => {
     if (!gesture) return;
@@ -64,21 +60,22 @@ export function installEdgeTabs({ target, canStart, onNext, onPrevious, isIntera
     }
     const dx = event.touches[0].clientX - gesture.x;
     const dy = Math.abs(event.touches[0].clientY - gesture.y);
-    if (Math.abs(dx) < 12 || dy > 24 && dy > Math.abs(dx)) gesture = null;
-  }, options);
+    if (dy > 24 && dy > Math.abs(dx)) gesture = null;
+  }, passive);
 
   target.addEventListener("touchend", (event) => {
     if (!gesture) return;
     const start = gesture;
     gesture = null;
     const touch = Array.from(event.changedTouches).find((item) => item.identifier === start.id);
-    if (!touch || event.touches.length || canStart() !== start.screen) return;
+    if (!touch || event.touches.length || canStart() !== start.tab) return;
     const dx = touch.clientX - start.x;
     const dy = Math.abs(touch.clientY - start.y);
-    if (dy > 0 && dy >= Math.abs(dx) / 1.5) return;
-    if (start.edge === "right" && dx <= -80) onPrevious();
-    if (start.edge === "left" && dx >= 80) onNext();
-  }, options);
+    if (Math.abs(dx) < 65 || Math.abs(dx) < dy * 1.5) return;
+    event.preventDefault(); // A swipe on an expense card must not also open it.
+    if (dx < 0) onPrevious();
+    else onNext();
+  }, { passive: false });
 
-  target.addEventListener("touchcancel", () => { gesture = null; }, options);
+  target.addEventListener("touchcancel", () => { gesture = null; }, passive);
 }

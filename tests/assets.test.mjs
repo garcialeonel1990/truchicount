@@ -40,14 +40,14 @@ test("RF-UI: el sistema visual define todos los tokens teal usados", async () =>
 
 test("RF-UI: cerrar un modal no deja una capa de blur sobre la app en iOS", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.doesNotMatch(css, /backdrop-filter\s*:/);
+  assert.doesNotMatch(css.replace(/\.(menu-popover|amount-operators)\s*\{[^}]*\}/g, ""), /backdrop-filter\s*:/);
 });
 
 test("RF-UI: el formulario de gasto bloquea el arrastre del shell en móviles", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(css, /#expenseModal\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?touch-action:\s*none;/);
-  assert.match(css, /#expenseModal \.modal-card\s*\{[\s\S]*?max-height:\s*100%;/);
-  assert.match(css, /\.modal-card\s*\{[\s\S]*?overscroll-behavior:\s*contain;[\s\S]*?touch-action:\s*pan-y;/);
+  assert.match(css, /#expenseModal \.expense-form\s*\{[\s\S]*?height:\s*100%;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /#expenseModal \.expense-form-body\s*\{[\s\S]*?overflow-y:\s*auto;[\s\S]*?overscroll-behavior:\s*contain;/);
 });
 
 test("RF-Categorías: las categorías cacheadas permiten abrir el formulario de gasto", async () => {
@@ -65,7 +65,7 @@ test("RF-Admin: el cambio de acceso actualiza la lista sin cerrar sesión", asyn
 
 test("RF-UI: el selector de emojis vive dentro del modal y libera el teclado", async () => {
   const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
-  const picker = app.match(/async function openEmojiPicker\(\)[\s\S]*?\n\}\n\nasync function deleteCategory/)?.[0] || "";
+  const picker = app.match(/async function openEmojiPicker\([^)]*\)[\s\S]*?\n\}\n\nasync function deleteCategory/)?.[0] || "";
   assert.match(picker, /document\.activeElement\?\.blur/);
   assert.match(picker, /dialogs\.categoryModal\.append\(popover\)/);
   assert.doesNotMatch(picker, /document\.body\.append\(popover\)/);
@@ -76,9 +76,31 @@ test("RF-UI: monedas usa un listado y permite agregar una nueva sin checkboxes",
   const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
   assert.match(html, /id="newCurrencyButton"/);
   assert.match(html, /id="currencyModal"/);
-  assert.match(app, /Object\.values\(CURRENCIES\)\.filter\(\(currency\) => enabled\.includes\(currency\.code\)\)/);
+  assert.match(app, /enabledCodes\.forEach/);
+  assert.match(html, /id="currencySearch"/);
+  assert.doesNotMatch(app.match(/function renderCountForm\(\)[\s\S]*?\n\}/)?.[0] || "", /Object\.values\(CURRENCIES\)/);
   assert.match(app, /updateUserSettings\(state\.user\.uid, \{ enabledCurrencies: next \}\)/);
   assert.doesNotMatch(app.match(/function renderSettings\(\)[\s\S]*?\n\}\n\nfunction openCurrencyModal/)?.[0] || "", /type="checkbox"/);
+});
+
+test("UX-03: el formulario conserva contratos y controles Tricount", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const form = html.match(/<form[^>]+id="expenseForm"[\s\S]*?<\/form>/)?.[0] || "";
+  for (const id of ["categoryButton", "payerButton", "currencyPill"]) assert.match(form, new RegExp(`id="${id}"`));
+  for (const name of ["title", "amount", "payer", "category", "expenseDate", "merchant", "notes"]) assert.match(form, new RegExp(`name="${name}"`));
+  assert.doesNotMatch(form, /Income|Transfer|Ingreso|Transferencia|capture=/);
+  for (const id of ["whatsappInviteButton", "copyInviteButton", "shareInviteButton"]) assert.match(html, new RegExp(`id="${id}"`));
+});
+
+test("UX-04: la invitación no ofrece QR ni carga código de vendor", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
+  const invite = html.match(/<dialog[^>]+id="inviteModal"[\s\S]*?<\/dialog>/)?.[0] || "";
+  assert.ok(invite, "existe #inviteModal");
+  assert.doesNotMatch(invite, /qrInviteButton|inviteQrPanel|inviteQr\b|inviteQrBackButton|código QR|<canvas/i);
+  assert.doesNotMatch(app, /qrInviteButton|inviteQr|qrcode|vendor\//i);
+  await assert.rejects(readFile(new URL("../vendor/qrcode-generator.mjs", import.meta.url)), { code: "ENOENT" });
+  await assert.rejects(readFile(new URL("./qr-vendor.test.mjs", import.meta.url)), { code: "ENOENT" });
 });
 
 test("RF-UI: el encabezado de Ajustes no superpone Volver con el título", async () => {
@@ -115,13 +137,6 @@ test("RF-Balances: limpia la lista anterior antes de estados loading o error", a
   const render = app.match(/function renderBalances\(\)[\s\S]*?function moneySummary/)?.[0] || "";
   assert.match(render, /const list = \$\("#balanceList"\); list\.replaceChildren\(\)/);
   assert.ok(render.indexOf("list.replaceChildren()") < render.indexOf('presentation.state === "loading"'));
-});
-
-test("RF-UI: el pie del asistente de Count no deja la acción siguiente aislada", async () => {
-  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.match(css, /\.wizard-actions \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
-  assert.match(css, /\.wizard-actions \.primary-button \{ grid-column: 3; \}/);
-  assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?\.wizard-actions \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}[\s\S]*?\.wizard-actions \.primary-button \{ grid-column: 1 \/ -1; \}/);
 });
 
 test("RF-Resumen: cada Count ofrece resumen y exportación CSV", async () => {

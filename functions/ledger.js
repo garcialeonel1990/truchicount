@@ -1,4 +1,4 @@
-const SUPPORTED_CURRENCIES = new Set(["ARS", "USD", "BRL", "UYU"]);
+import { isSupportedCurrency } from "./currencies.js";
 
 function add(current = 0, amount = 0) {
   const next = current + amount;
@@ -10,14 +10,27 @@ function validId(value) {
   return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
 }
 
+// Legacy expenses have no payerShares: the single payer covered the full amount.
+export function payerSharesOf(expense) {
+  return expense.payerShares ?? { [expense.payerMemberId]: expense.amountMinor };
+}
+
 export function validateLedger(members, expenses, settlements) {
   const memberIds = new Set(members.map((member) => member.id));
   if (memberIds.size !== members.length || [...memberIds].some((id) => !validId(id))) throw new Error("El ledger contiene integrantes inválidos.");
 
   expenses.filter((expense) => expense.status === "active").forEach((expense) => {
     if (!Number.isSafeInteger(expense.amountMinor) || expense.amountMinor <= 0) throw new Error("El ledger contiene un gasto con monto inválido.");
-    if (!SUPPORTED_CURRENCIES.has(expense.currency)) throw new Error("El ledger contiene una moneda inválida.");
+    if (!isSupportedCurrency(expense.currency)) throw new Error("El ledger contiene una moneda inválida.");
     if (!memberIds.has(expense.payerMemberId)) throw new Error("El ledger contiene un pagador inexistente.");
+    const payers = payerSharesOf(expense);
+    if (!payers || typeof payers !== "object" || Array.isArray(payers) || !Object.keys(payers).length) throw new Error("El ledger contiene pagadores inválidos.");
+    const paidTotal = Object.entries(payers).reduce((sum, [memberId, paid]) => {
+      if (!memberIds.has(memberId)) throw new Error("El ledger contiene un pagador inexistente.");
+      if (!Number.isSafeInteger(paid) || paid < 0) throw new Error("El ledger contiene un pago inválido.");
+      return add(sum, paid);
+    }, 0);
+    if (paidTotal !== expense.amountMinor) throw new Error("Los pagos del gasto no suman el monto total.");
     const participants = expense.participantMemberIds;
     if (!Array.isArray(participants) || !participants.length || new Set(participants).size !== participants.length) throw new Error("El ledger contiene participantes inválidos.");
     if (participants.some((memberId) => !memberIds.has(memberId))) throw new Error("El ledger contiene participantes inexistentes.");
@@ -36,7 +49,7 @@ export function validateLedger(members, expenses, settlements) {
 
   settlements.filter((settlement) => settlement.status === "active").forEach((settlement) => {
     if (!Number.isSafeInteger(settlement.amountMinor) || settlement.amountMinor <= 0) throw new Error("El ledger contiene una liquidación con monto inválido.");
-    if (!SUPPORTED_CURRENCIES.has(settlement.currency)) throw new Error("El ledger contiene una liquidación con moneda inválida.");
+    if (!isSupportedCurrency(settlement.currency)) throw new Error("El ledger contiene una liquidación con moneda inválida.");
     if (!memberIds.has(settlement.fromMemberId) || !memberIds.has(settlement.toMemberId) || settlement.fromMemberId === settlement.toMemberId) throw new Error("El ledger contiene una liquidación entre integrantes inválidos.");
   });
 }
@@ -45,7 +58,9 @@ export function calculateNetBalances(members, expenses, settlements) {
   const balances = Object.fromEntries(members.map((member) => [member.id, {}]));
   expenses.filter((expense) => expense.status === "active").forEach((expense) => {
     const currency = expense.currency;
-    balances[expense.payerMemberId][currency] = add(balances[expense.payerMemberId][currency], expense.amountMinor);
+    Object.entries(payerSharesOf(expense)).forEach(([memberId, paid]) => {
+      balances[memberId][currency] = add(balances[memberId][currency], paid);
+    });
     Object.entries(expense.participantShares).forEach(([memberId, share]) => {
       balances[memberId][currency] = add(balances[memberId][currency], -share);
     });

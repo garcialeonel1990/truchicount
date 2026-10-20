@@ -23,6 +23,10 @@ Mitigación requerida: comandos privilegiados con Admin SDK y transacciones para
 
 ## Correcciones de este ciclo
 
+- Se implementó `countCommandV1` con recibos idempotentes, serialización por `counts/{countId}.revision`, normalización server-side de gastos, validación de ledger, archivado y bajas de integrantes. El cliente dejó de escribir directamente gastos, estado del Count y bajas; las Rules bloquean esas escrituras.
+- La categoría global quedó limitada a su creador/admin y la actualización de comercios a sus campos de uso. El emoji del Count rechaza markup.
+- La implementación está pendiente de verificación completa en Emulator y despliegue ordenado en producción; no se debe marcar el cierre operativo hasta completar esos pasos.
+
 - `createSettlementV2`, el cliente y las Rules nuevas están desplegados. El flujo autenticado y el bloqueo de escrituras directas se probaron en emuladores; falta verificar una liquidación real en producción. Las pestañas con versiones anteriores deben recargarse.
 - CI ejecuta unitarios y Rules antes de aceptar cambios.
 - El deploy de Hosting dejó de ejecutarse automáticamente en cada push a `main`; ahora es manual, depende de la suite completa y usa el environment `production`.

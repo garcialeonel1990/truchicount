@@ -2,3 +2,4 @@
 node_modules/
 firestore-debug.log
 .firebase/
+firebase-debug.log

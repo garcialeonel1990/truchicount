@@ -155,7 +155,12 @@ test("joinInvite: rechaza un candidato manual desactualizado", async () => {
 test("joinInvite: un manual ya reclamado no se puede reclamar de nuevo", async () => {
   await env.clearFirestore(); await seedBase({ candidates: [{ memberId: "manual_1", alias: "Aldu" }] }); await addUser("guest");
   await env.withSecurityRulesDisabled(async (context) => setDoc(memberRef(context.firestore(), "manual_1"), { memberId: "manual_1", countId: COUNT_ID, type: "registered", userId: "other", role: "owner", active: true }));
-  await assert.rejects(join("guest", { manualMemberId: "manual_1" }), /ya fue vinculado/);
+  // VULN-09: un aprobado no integrante ya no puede leer a un registrado ajeno; el reclamo se bloquea en las reglas.
+  await assertFails(join("guest", { manualMemberId: "manual_1" }));
+  // withSecurityRulesDisabled devuelve Promise<void>: capturar el valor dentro del callback.
+  let after;
+  await env.withSecurityRulesDisabled(async (context) => { after = (await getDoc(memberRef(context.firestore(), "manual_1"))).data(); });
+  assert.equal(after.userId, "other");
 });
 
 test("joinInvite: rechaza perfiles pendientes", async () => {
@@ -196,6 +201,35 @@ test("reglas: un perfil pendiente no puede resolver una invitación", async () =
 test("reglas: una invitación draft no incorpora personas", async () => {
   await env.clearFirestore(); await seedBase({ status: "draft", inviteStatus: "draft" }); await addUser("guest");
   await assert.rejects(join("guest"), /todavía se está configurando/);
+});
+
+test("reglas: el creador guarda el emoji del borrador y se conserva al crear el Count", async () => {
+  await env.clearFirestore();
+  await seedBase({ status: "draft", inviteStatus: "draft" });
+  await env.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "counts", COUNT_ID), { draftInviteToken: TOKEN });
+  });
+  const db = client("owner");
+  const ref = doc(db, "counts", COUNT_ID);
+  await updateDoc(ref, { emoji: "🏖️", name: "Viaje" });
+  await runTransaction(db, async (transaction) => {
+    await transaction.get(ref);
+    transaction.update(ref, { status: "active" });
+    transaction.update(inviteRef(db), { status: "active" });
+  });
+  const count = (await getDoc(ref)).data();
+  assert.equal(count.emoji, "🏖️");
+  assert.equal(count.status, "active");
+});
+
+test("reglas: el emoji de un borrador no permite valores inválidos ni cambios de un ajeno", async () => {
+  await env.clearFirestore();
+  await seedBase({ status: "draft", inviteStatus: "draft" });
+  await addUser("outsider");
+  const ref = doc(client("owner"), "counts", COUNT_ID);
+  for (const emoji of [null, 42, "", "x".repeat(33)]) await assertFails(updateDoc(ref, { emoji }));
+  await assertFails(updateDoc(doc(client("outsider"), "counts", COUNT_ID), { emoji: "🏡" }));
+  await assertFails(updateDoc(ref, { emoji: "🏡", ownerUid: "outsider" }));
 });
 
 test("reglas: una invitación inválida no incorpora personas", async () => {

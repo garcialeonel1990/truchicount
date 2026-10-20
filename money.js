@@ -1,11 +1,10 @@
-export const DEFAULT_CURRENCY = "ARS";
+import { CURRENCY_CODES } from "./currencies.js";
 
-export const CURRENCIES = {
-  ARS: { code: "ARS", name: "Peso argentino", symbol: "$", decimals: 2 },
-  USD: { code: "USD", name: "Dólar estadounidense", symbol: "US$", decimals: 2 },
-  BRL: { code: "BRL", name: "Real brasileño", symbol: "R$", decimals: 2 },
-  UYU: { code: "UYU", name: "Peso uruguayo", symbol: "$U", decimals: 2 },
-};
+export const DEFAULT_CURRENCY = "ARS";
+const names = new Intl.DisplayNames(["es-AR"], { type: "currency" });
+const symbolOf = (code) => new Intl.NumberFormat("es-AR", { style: "currency", currency: code, currencyDisplay: "narrowSymbol" }).formatToParts(0).find((part) => part.type === "currency").value;
+const capitalize = (text) => text.charAt(0).toLocaleUpperCase("es-AR") + text.slice(1);
+export const CURRENCIES = Object.freeze(Object.fromEntries(CURRENCY_CODES.map((code) => [code, Object.freeze({ code, name: capitalize(names.of(code)), symbol: symbolOf(code), decimals: 2 })])));
 
 // Money is kept as an integer in its smallest unit (centavos in V1).
 // Input policy: Argentine grouping/decimal notation, plus a convenient mobile
