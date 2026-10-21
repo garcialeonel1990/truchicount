@@ -1957,6 +1957,248 @@ body {
   #expenseModal .category-button { width: 50px; }
 }
 
+/* Golden Screen v1 — Detalle de Count.
+   This is the pilot source of truth for the detail shell only. It keeps the
+   existing tokens as aliases and does not change the expense data flow. */
+#detailScreen {
+  --golden-gutter: var(--tc-page-gutter);
+  --golden-space-1: var(--tc-space-1);
+  --golden-space-2: var(--tc-space-2);
+  --golden-space-3: var(--tc-space-3);
+  --golden-space-4: var(--tc-space-4);
+  --golden-radius-control: var(--tc-radius-control);
+  --golden-radius-card: 16px;
+  --golden-target: var(--tc-touch-min);
+}
+
+#detailScreen .count-context-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--golden-space-2);
+  min-height: 76px;
+  margin: calc(-20px - env(safe-area-inset-top)) calc(-1 * var(--golden-gutter)) 16px;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  border-bottom: 1px solid rgba(153, 246, 228, 0.18);
+  background: var(--navy-900);
+}
+
+#detailScreen .count-context-header > .back-button,
+#detailScreen .count-context-header .detail-actions .icon-button {
+  min-width: var(--golden-target);
+  min-height: var(--golden-target);
+  color: var(--teal-200);
+}
+
+#detailScreen .count-context-header > .back-button {
+  padding-inline: 4px;
+  border-radius: var(--golden-radius-control);
+}
+
+#detailScreen .count-context-copy {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0 var(--golden-space-2);
+  min-width: 0;
+  text-align: left;
+}
+
+#detailScreen .count-hero-icon {
+  grid-row: 1 / span 2;
+  margin: 0;
+  font-size: 30px;
+  line-height: 1;
+}
+
+#detailScreen .count-name-button {
+  min-height: var(--golden-target);
+  padding: 2px 0;
+  color: var(--white);
+  font-size: clamp(20px, 5.8vw, 26px);
+  line-height: 1.15;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#detailScreen .count-context-copy > p {
+  margin: 0;
+  color: var(--gray-300);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+#detailScreen .archive-summary {
+  grid-column: 2;
+  justify-items: start;
+  margin-top: var(--golden-space-1);
+}
+
+#detailScreen .detail-actions {
+  gap: 0;
+  padding: 0;
+  background: transparent;
+}
+
+#detailScreen .detail-actions .icon-button {
+  width: var(--golden-target);
+  height: var(--golden-target);
+  border-radius: var(--golden-radius-control);
+  background: transparent;
+}
+
+#detailScreen .tabs {
+  min-height: var(--golden-target);
+  margin: 0 0 var(--golden-space-3);
+  padding: 3px;
+  border: 1px solid var(--tc-border);
+  border-radius: var(--golden-radius-control);
+  background: var(--tc-surface-muted);
+}
+
+#detailScreen .tab {
+  min-height: calc(var(--golden-target) - 6px);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+#detailScreen .totals-row {
+  gap: var(--golden-space-3);
+  margin-bottom: var(--golden-space-4);
+}
+
+#detailScreen .totals-row article,
+#detailScreen .totals-row article:last-child {
+  min-width: 0;
+  min-height: 62px;
+  padding: 0 4px 10px;
+  border: 0;
+  border-bottom: 2px solid var(--tc-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--tc-ink);
+  box-shadow: none;
+  text-align: left;
+}
+
+#detailScreen .totals-row span,
+#detailScreen .totals-row article:last-child span {
+  color: var(--tc-ink-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#detailScreen .totals-row strong,
+#detailScreen .totals-row strong span,
+#detailScreen .totals-row article:last-child strong span {
+  display: block;
+  margin-top: var(--golden-space-1);
+  color: var(--tc-ink);
+  font-size: clamp(16px, 4.5vw, 20px);
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+#detailScreen .totals-row strong span { display: inline; }
+
+#detailScreen #expensesPanel { padding-bottom: calc(96px + var(--tc-safe-bottom)); }
+#detailScreen .expense-list { gap: var(--golden-space-2); }
+
+#detailScreen .expense-date-heading {
+  margin: 16px 4px 2px;
+  color: var(--tc-ink-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#detailScreen .expense-date-heading:first-child { margin-top: 0; }
+
+#detailScreen .expense-card {
+  grid-template-columns: 36px minmax(0, 1fr) minmax(0, 42%);
+  align-items: center;
+  gap: var(--golden-space-3);
+  min-height: 80px;
+  padding: 12px 14px;
+  border: 1px solid var(--tc-border);
+  border-radius: var(--golden-radius-card);
+  background: var(--tc-surface);
+  box-shadow: none;
+}
+
+#detailScreen .expense-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--tc-brand-soft);
+  font-size: 21px;
+}
+
+#detailScreen .expense-copy { gap: 2px; }
+#detailScreen .expense-copy strong { font-size: 15px; line-height: 1.2; }
+#detailScreen .expense-copy small { margin-top: 0; font-size: 12px; line-height: 1.25; }
+#detailScreen .expense-amount {
+  max-width: none;
+  color: var(--tc-ink);
+  font-size: clamp(15px, 4.2vw, 18px);
+  line-height: 1.15;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+#detailScreen .add-expense-button {
+  right: var(--golden-gutter);
+  bottom: calc(16px + var(--tc-safe-bottom));
+  min-height: 50px;
+  padding-inline: 20px;
+  border-radius: var(--golden-radius-control);
+  box-shadow: 0 4px 12px rgba(8, 24, 38, 0.14);
+}
+
+@media (max-width: 359px) {
+  #detailScreen .count-context-header {
+    margin-right: -12px;
+    margin-left: -12px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+  #detailScreen .count-context-header > .back-button { padding-inline: 0; }
+  #detailScreen .count-name-button { font-size: 19px; }
+  #detailScreen .expense-card {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 4px var(--golden-space-3);
+  }
+  #detailScreen .expense-amount {
+    grid-column: 2;
+    max-width: 100%;
+    text-align: left;
+  }
+}
+
+@media (min-width: 640px) {
+  #detailScreen .count-context-header {
+    width: min(100%, 780px);
+    margin: 0 auto 16px;
+    padding: 8px 0;
+    border-bottom-color: var(--tc-border);
+    background: transparent;
+  }
+  #detailScreen .count-context-header .count-name-button { color: var(--tc-ink); }
+  #detailScreen .count-context-copy > p { color: var(--tc-ink-muted); }
+  #detailScreen .count-context-header > .back-button,
+  #detailScreen .count-context-header .detail-actions .icon-button { color: var(--tc-brand); }
+  #detailScreen .tabs,
+  #detailScreen .tab-panel.is-active { width: min(100%, 780px); margin-right: auto; margin-left: auto; }
+  #detailScreen .add-expense-button { position: static; display: flex; width: max-content; margin: 16px 0 0 auto; }
+}
+
 /* Ajustes v2 — navigation, grouped lists and compact admin. */
 #settingsScreen {
   padding-top: 16px;
