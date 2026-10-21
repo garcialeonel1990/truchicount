@@ -199,6 +199,9 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 }
 
 .app-shell {
+  --app-page-gutter: 16px;
+  --app-navigation-height: 64px;
+  --app-safe-top: env(safe-area-inset-top, 0px);
   width: min(100%, 1180px);
   min-height: 100vh;
   margin: 0 auto;
@@ -208,10 +211,11 @@ button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 
 .app-header {
   display: flex;
+  box-sizing: border-box;
   align-items: center;
   justify-content: space-between;
-  min-height: 64px;
-  padding: 10px 16px;
+  min-height: var(--app-navigation-height);
+  padding: 0 var(--app-page-gutter);
   border-bottom: 1px solid rgba(153, 246, 228, 0.16);
   background: var(--navy-900);
 }
@@ -1377,7 +1381,9 @@ body {
   overflow: hidden;
 }
 .app-header {
-  padding-top: calc(10px + env(safe-area-inset-top));
+  height: calc(var(--app-navigation-height) + var(--app-safe-top));
+  min-height: calc(var(--app-navigation-height) + var(--app-safe-top));
+  padding-top: var(--app-safe-top);
 }
 .screen {
   min-height: 0;
@@ -1387,20 +1393,8 @@ body {
   padding: 20px 16px calc(92px + env(safe-area-inset-bottom));
 }
 
-.app-shell.is-detail-view { grid-template-rows: minmax(0, 1fr); }
-.app-shell.is-detail-view .app-header { display: none; }
-.app-shell.is-detail-view .screen { min-height: 0; padding-top: calc(20px + env(safe-area-inset-top)); background: var(--gray-50); }
-.app-shell.is-detail-view::before {
-  content: "";
-  position: fixed;
-  z-index: 5;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: env(safe-area-inset-top);
-  background: var(--navy-900);
-  pointer-events: none;
-}
+.app-shell.is-detail-view { grid-template-rows: auto minmax(0, 1fr); }
+.app-shell.is-detail-view .screen { min-height: 0; background: var(--gray-50); }
 
 .page-heading { align-items: center; margin-bottom: 16px; }
 .page-heading h1 { font-size: 26px; }
@@ -1972,7 +1966,7 @@ body {
 }
 
 #appShell.is-detail-view #detailScreen {
-  padding-top: calc(var(--golden-space-2) + env(safe-area-inset-top));
+  padding-top: var(--golden-space-2);
   padding-bottom: calc(84px + var(--tc-safe-bottom));
 }
 
@@ -2223,7 +2217,7 @@ body {
 
 /* Ajustes v2 — navigation, grouped lists and compact admin. */
 #settingsScreen {
-  padding-top: 16px;
+  padding-top: 20px;
 }
 #settingsScreen .settings-topline {
   display: flex;
