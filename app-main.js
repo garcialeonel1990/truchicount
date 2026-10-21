@@ -907,11 +907,15 @@ function openExpenseModal(expense) {
 }
 function closeExpenseDialog(dialog) {
   if (!dialog?.open) return;
-  document.activeElement?.blur?.();
+  // Let the native dialog close algorithm restore focus to the opener. Cleanup
+  // belongs to `close` so native closes (including browser/platform back) take
+  // exactly the same path as our buttons.
+  dialog.close();
+}
+function cleanupExpenseDialog() {
   closeMenus();
   const amountOperators = $("#amountOperators");
   if (amountOperators) amountOperators.hidden = true;
-  dialog.close();
 }
 function closeExpenseModal() { closeExpenseDialog(dialogs.expenseModal); }
 function refreshExpensePills() {
@@ -1220,6 +1224,7 @@ document.querySelectorAll("[data-close]").forEach((button) => on(button, "click"
 }));
 for (const dialog of [dialogs.expenseModal, dialogs.expenseDetailModal]) {
   on(dialog, "cancel", (event) => { event.preventDefault(); closeExpenseDialog(dialog); });
+  on(dialog, "close", cleanupExpenseDialog);
 }
 document.querySelectorAll("[data-tab]").forEach((button) => on(button, "click", () => {
   selectDetailTab(button.dataset.tab);
