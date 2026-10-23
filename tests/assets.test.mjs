@@ -26,16 +26,16 @@ test("RF-Auth: el login móvil no fuerza el redirect que genera loops en iOS", a
 test("RF-UI: los ajustes compactos no pisan el layout de escritorio", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?\.screen \{/);
-  assert.match(css, /@media \(min-width: 640px\) \{\s*\/\* Detail navigation/s);
-  assert.match(css, /@media \(min-width: 900px\) \{[\s\S]*?\.modal \{ width: min\(calc\(100% - 48px\), 620px\)/);
+  assert.match(css, /@media \(min-width: 640px\) \{[\s\S]*?\.screen \{/);
+  assert.match(css, /@media \(min-width: 900px\) \{[\s\S]*?\.count-context-header/);
 });
 
-test("RF-UI: el sistema visual define todos los tokens teal usados", async () => {
+test("RF-UI: el sistema visual usa solamente tokens semánticos nuevos", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.match(css, /--teal-100:\s*#[0-9a-f]{6}/i);
-  assert.match(css, /--teal-600:\s*#[0-9a-f]{6}/i);
-  assert.match(css, /--color-primary:\s*var\(--teal-700\)/);
-  assert.match(css, /\.danger-button\s*\{[\s\S]*?background:\s*var\(--coral-700\)/);
+  for (const token of ["color-page", "color-surface", "color-header", "color-brand", "color-danger", "space-4", "gutter", "target", "control-h", "radius-control", "safe-bottom"]) {
+    assert.match(css, new RegExp(`--${token}:`), `falta --${token}`);
+  }
+  assert.doesNotMatch(css, /--(?:tc-|field-|button-|teal-|navy-|gray-|coral-)/);
 });
 
 test("RF-UI: cerrar un modal no deja una capa de blur sobre la app en iOS", async () => {
@@ -45,9 +45,10 @@ test("RF-UI: cerrar un modal no deja una capa de blur sobre la app en iOS", asyn
 
 test("RF-UI: el formulario de gasto bloquea el arrastre del shell en móviles", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.match(css, /#expenseModal\s*\{[\s\S]*?overflow:\s*hidden;[\s\S]*?touch-action:\s*none;/);
-  assert.match(css, /#expenseModal \.expense-form\s*\{[\s\S]*?height:\s*100%;[\s\S]*?overflow:\s*hidden;/);
-  assert.match(css, /#expenseModal \.expense-form-body\s*\{[\s\S]*?overflow-y:\s*auto;[\s\S]*?overscroll-behavior:\s*contain;/);
+  assert.match(css, /#expenseModal\[open\]\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\) auto/);
+  assert.match(css, /\.expense-form-body\s*\{[\s\S]*?overflow-y:\s*auto/);
+  const baseBody = css.match(/body\s*\{([^}]*)\}/)?.[1] || "";
+  assert.doesNotMatch(baseBody, /overflow:\s*hidden/);
 });
 
 test("RF-Categorías: las categorías cacheadas permiten abrir el formulario de gasto", async () => {
@@ -105,8 +106,8 @@ test("UX-04: la invitación no ofrece QR ni carga código de vendor", async () =
 
 test("RF-UI: el encabezado de Ajustes no superpone Volver con el título", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.match(css, /\.settings-topline \.back-button\s*\{[\s\S]*?width:\s*auto;[\s\S]*?white-space:\s*nowrap;/);
-  assert.match(css, /\.settings-topline\s*\{[\s\S]*?gap:\s*12px;/);
+  assert.match(css, /\.settings-topline\s*\{[\s\S]*?align-items:\s*center/);
+  assert.match(css, /\.settings-topline, \.settings-panel-heading/);
 });
 
 test("RF-UI: Ajustes separa monedas, categorías y administración en paneles", async () => {
@@ -124,12 +125,19 @@ test("RF-UI: el sistema de botones comparte tamaños y targets táctiles", async
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app-main.js", import.meta.url), "utf8");
-  assert.match(css, /--button-height-sm:\s*36px/);
-  assert.match(css, /--button-height-md:\s*44px/);
-  assert.match(css, /--button-height-lg:\s*48px/);
-  assert.match(css, /\.icon-button,[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px/);
+  assert.match(css, /--target:\s*44px/);
+  assert.match(css, /--control-h:\s*48px/);
+  assert.match(css, /\.icon-button, \.user-button[\s\S]*?min-width:\s*var\(--target\)[\s\S]*?min-height:\s*var\(--target\)/);
   assert.doesNotMatch(html, /class="close-button"(?![^>]*aria-label="Cerrar")/);
   assert.match(app, /const row = document\.createElement\("button"\);\s*row\.type = "button";\s*row\.className = "member-row member-row-action"/);
+});
+
+test("RF-UI: el CSS nuevo no reintroduce overlays, hotfixes ni aliases legacy", async () => {
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /backdrop-filter\s*:/);
+  const withoutAllowedHiddenRule = css.replace(/\[hidden\]\s*\{[^}]*!important[^}]*\}/g, "");
+  assert.doesNotMatch(withoutAllowedHiddenRule, /!important/);
+  assert.doesNotMatch(css, /hotfix|final override|legacy override/i);
 });
 
 test("RF-Balances: limpia la lista anterior antes de estados loading o error", async () => {

@@ -19,3 +19,16 @@ test("expense dialog uses the native backdrop and does not force display while c
   assert.match(css, /#expenseModal\[open\]\s*\{\s*display:\s*block;\s*\}/);
   assert.doesNotMatch(css, /#expenseModal:not\(\[open\]\)[^{]*\{[^}]*display:\s*(?:block|flex|grid)/);
 });
+
+test("the global header and its shell do not apply blur or compositing effects", () => {
+  const shell = css.match(/\.app-shell\s*\{([^}]*)\}/)?.[1] || "";
+  const header = css.match(/\.app-header\s*\{([^}]*)\}/)?.[1] || "";
+  assert.ok(shell, "app-shell rule exists");
+  assert.ok(header, "app-header rule exists");
+  for (const declarations of [shell, header]) {
+    assert.doesNotMatch(declarations, /(?:backdrop-)?filter\s*:/);
+    assert.doesNotMatch(declarations, /opacity\s*:/);
+    assert.doesNotMatch(declarations, /transform\s*:/);
+  }
+  assert.match(header, /background:\s*var\(--color-header\)/);
+});

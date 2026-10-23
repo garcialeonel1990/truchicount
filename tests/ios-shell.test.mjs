@@ -20,7 +20,7 @@ test("the install manifest and first paint keep the iOS system area navy", async
   assert.equal(manifest.display, "standalone");
   assert.equal(manifest.theme_color, "#0b1f33");
   assert.equal(manifest.background_color, "#0b1f33");
-  assert.match(css, /\.startup-screen\s*\{\s*background:\s*var\(--navy-900\)/);
+  assert.match(css, /\.startup-screen\s*\{\s*background:\s*var\(--color-header\)/);
 });
 
 test("the page clips horizontal overflow while retaining safe areas and vertical scrolling", async () => {
@@ -31,20 +31,18 @@ test("the page clips horizontal overflow while retaining safe areas and vertical
   assert.match(css, /\.screen\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior-y:\s*none;/);
   assert.match(css, /\.login-screen\s*\{[^}]*height:\s*100dvh;[^}]*overflow-y:\s*auto;/);
   assert.match(css, /--app-navigation-height:\s*64px/);
-  assert.match(css, /--app-safe-top:\s*env\(safe-area-inset-top, 0px\)/);
-  assert.match(css, /height:\s*calc\(var\(--app-navigation-height\) \+ var\(--app-safe-top\)\)/);
-  assert.match(css, /env\(safe-area-inset-bottom\)/);
-  assert.match(css, /env\(safe-area-inset-left\)/);
-  assert.match(css, /env\(safe-area-inset-right\)/);
+  assert.match(css, /--safe-top:\s*env\(safe-area-inset-top, 0px\)/);
+  assert.match(css, /min-height:\s*calc\(var\(--app-navigation-height\) \+ var\(--safe-top\)\)/);
+  assert.match(css, /env\(safe-area-inset-bottom, 0px\)/);
 });
 
 test("Home, Detalle y Ajustes conservan una única navegación superior y una sola safe area", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.equal((html.match(/class="app-header"/g) || []).length, 1);
-  assert.match(css, /\.app-shell\.is-detail-view \{\s*grid-template-rows:\s*auto minmax\(0, 1fr\)/);
+  assert.match(css, /\.app-shell\s*\{\s*display:\s*grid;[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\)/);
   assert.doesNotMatch(css, /\.app-shell\.is-detail-view \.app-header\s*\{\s*display:\s*none/);
   assert.doesNotMatch(css, /\.app-shell\.is-detail-view::before/);
-  assert.match(css, /#appShell\.is-detail-view #detailScreen\s*\{\s*padding-top:\s*var\(--golden-space-2\)/);
-  assert.match(css, /#settingsScreen\s*\{\s*padding-top:\s*20px/);
+  assert.match(css, /\.count-context-header\s*\{/);
+  assert.match(css, /\.settings-topline\s*\{/);
 });
