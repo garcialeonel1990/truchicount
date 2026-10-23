@@ -27,12 +27,12 @@ test("the page clips horizontal overflow while retaining safe areas and vertical
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(css, /html\s*\{[^}]*overflow-x:\s*clip/);
   assert.match(css, /body\s*\{[^}]*overflow-x:\s*clip/);
-  assert.match(css, /@media \(max-width: 639px\) \{[\s\S]*?body\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?overflow:\s*hidden;/);
+  assert.doesNotMatch(css, /body\s*\{[^}]*(?:position:\s*fixed|overflow:\s*hidden)/);
+  assert.match(css, /\.app-shell\s*\{[^}]*height:\s*100dvh/);
   assert.match(css, /\.screen\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior-y:\s*none;/);
   assert.match(css, /\.login-screen\s*\{[^}]*height:\s*100dvh;[^}]*overflow-y:\s*auto;/);
-  assert.match(css, /--app-navigation-height:\s*64px/);
   assert.match(css, /--safe-top:\s*env\(safe-area-inset-top, 0px\)/);
-  assert.match(css, /min-height:\s*calc\(var\(--app-navigation-height\) \+ var\(--safe-top\)\)/);
+  assert.match(css, /min-height:\s*calc\(64px \+ var\(--safe-top\)\)/);
   assert.match(css, /env\(safe-area-inset-bottom, 0px\)/);
 });
 

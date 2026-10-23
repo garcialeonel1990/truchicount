@@ -16,7 +16,7 @@ test("expense dialog cleanup is attached to native close and cancel is routed th
 test("expense dialog uses the native backdrop and does not force display while closed", () => {
   assert.match(css, /\.modal::backdrop\s*\{\s*background:/);
   assert.doesNotMatch(css, /#expenseModal\s*\{[^}]*::backdrop/);
-  assert.match(css, /#expenseModal\[open\]\s*\{\s*display:\s*block;\s*\}/);
+  assert.match(css, /#expenseModal\[open\]\s*\{[^}]*display:\s*block/);
   assert.doesNotMatch(css, /#expenseModal:not\(\[open\]\)[^{]*\{[^}]*display:\s*(?:block|flex|grid)/);
 });
 

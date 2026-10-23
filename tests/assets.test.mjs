@@ -45,7 +45,7 @@ test("RF-UI: cerrar un modal no deja una capa de blur sobre la app en iOS", asyn
 
 test("RF-UI: el formulario de gasto bloquea el arrastre del shell en móviles", async () => {
   const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.match(css, /#expenseModal\[open\]\s*\{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\) auto/);
+  assert.match(css, /\.count-form, \.expense-form\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\) auto/);
   assert.match(css, /\.expense-form-body\s*\{[\s\S]*?overflow-y:\s*auto/);
   const baseBody = css.match(/body\s*\{([^}]*)\}/)?.[1] || "";
   assert.doesNotMatch(baseBody, /overflow:\s*hidden/);
